@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+spec:
+  replicas: 1
+  # This personal stack has one gateway replica. Recreate avoids a stuck old
+  # replica blocking deployment while secrets or the local database change.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command: ["sh", "-c", "until pg_isready -h postgres -U ai_gateway; do sleep 2; done"]
+      containers:
+        - name: gateway
+          image: local/ai-gateway:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: gateway-secrets, key: postgres-password}
+            # Kubernetes expands $(VAR) using variables declared earlier in
+            # this list, so POSTGRES_PASSWORD must precede DATABASE_URL.
+            - name: DATABASE_URL
+              value: postgresql://ai_gateway:$(POSTGRES_PASSWORD)@postgres:5432/ai_gateway
+            - name: GATEWAY_API_KEY
+              valueFrom:
+                secretKeyRef: {name: gateway-secrets, key: gateway-api-key}
+            - name: PROVIDER_API_KEY
+              valueFrom:
+                secretKeyRef: {name: gateway-secrets, key: provider-api-key}
+            - name: PROVIDER_API_BASE
+              valueFrom:
+                secretKeyRef: {name: gateway-secrets, key: provider-api-base}
+            - name: DAILY_REQUEST_LIMIT
+              value: "100"
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+spec:
+  selector:
+    app: gateway
+  ports:
+    - port: 8000
+      targetPort: 8000

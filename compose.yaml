@@ -1,0 +1,9 @@
+services:
+  infra:
+    build:
+      context: .
+      dockerfile: Dockerfile.infra
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock

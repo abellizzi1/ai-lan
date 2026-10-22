@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-lan
+spec:
+  ingressClassName: traefik
+  rules:
+    - http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend: {service: {name: gateway, port: {number: 8000}}}
+          - path: /healthz
+            pathType: Exact
+            backend: {service: {name: gateway, port: {number: 8000}}}
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: frontend, port: {number: 80}}}
