@@ -40,7 +40,8 @@ resource "terraform_data" "application" {
     filesha256("${path.module}/k8s/base/gateway.yaml"),
     filesha256("${path.module}/k8s/base/frontend.yaml"),
     filesha256("${path.module}/k8s/base/postgres.yaml"),
-    filesha256("${path.module}/k8s/base/network.yaml")
+    filesha256("${path.module}/k8s/base/network.yaml"),
+    filesha256("${path.module}/scripts/deploy.sh")
   ]
 
   depends_on = [terraform_data.cluster, terraform_data.images]

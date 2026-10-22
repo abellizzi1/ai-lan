@@ -16,10 +16,10 @@ There are two layers of containers:
 The scripts Terraform calls are all in `scripts/` and run in this order:
 
 1. `create-cluster.sh` creates (or reuses) the `ai-lan` K3s cluster and writes `.kubeconfig`.
-2. `build-image.sh` builds `services/gateway` and imports that image into K3s.
-3. `deploy.sh` creates the Kubernetes secret from your three secret values, applies the manifests, configures the Wi-Fi CIDR restriction, and waits for the gateway.
+2. `build-image.sh` builds `services/gateway` and imports that image into K3s. K3s has its own image store, distinct from Docker's local image list.
+3. `deploy.sh` creates the Kubernetes secret, waits for K3s's bundled Traefik ingress CRD, applies the manifests, configures the Wi-Fi CIDR restriction, waits for PostgreSQL, then waits for the gateway.
 
-If Docker Desktop removes or resets the local K3s containers, `deploy.sh` detects the missing server container and recreates the local cluster before applying the application.
+If Docker Desktop removes or resets the local K3s containers, `deploy.sh` detects the missing server container, recreates the local cluster, and re-imports the gateway image before applying the application.
 
 Nothing needs to be installed outside Docker Desktop. Start by building the runner:
 

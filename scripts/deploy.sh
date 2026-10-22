@@ -19,6 +19,9 @@ if ! docker inspect "$server_container" >/dev/null 2>&1; then
   echo "K3s server container is missing; recreating local cluster $cluster_name."
   sh "$project_root/scripts/create-cluster.sh" "$cluster_name" "$http_port"
 fi
+# K3s has a separate containerd image store. Importing is harmless when the
+# image already exists there and is required after any local cluster rebuild.
+k3d image import local/ai-gateway:dev --cluster "$cluster_name"
 
 # Every `docker compose run` starts a fresh runner container. Attach this runner
 # to the existing cluster network and refresh its internal-only kubeconfig.
@@ -46,9 +49,26 @@ kubectl --kubeconfig "$kubeconfig" create secret generic gateway-secrets \
   --from-literal="provider-api-base=$provider_api_base" \
   --dry-run=client -o yaml | kubectl --kubeconfig "$kubeconfig" apply -f -
 
+# K3s installs Traefik asynchronously after its nodes become Ready. The ingress
+# manifests include Traefik's Middleware custom resource, so wait until that
+# CRD is registered with the API server before applying the application.
+traefik_crd="middlewares.traefik.io"
+attempt=0
+echo "Waiting for Traefik CRD $traefik_crd..."
+until kubectl --kubeconfig "$kubeconfig" get crd "$traefik_crd" >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 90 ]; then
+    echo "Timed out waiting for Traefik CRD $traefik_crd" >&2
+    exit 1
+  fi
+  sleep 2
+done
+kubectl --kubeconfig "$kubeconfig" wait --for=condition=Established "crd/$traefik_crd" --timeout=60s
+
 kubectl --kubeconfig "$kubeconfig" apply -k "$project_root/k8s/base"
 kubectl --kubeconfig "$kubeconfig" patch middleware.traefik.io lan-only --namespace ai-lan --type merge \
   -p "{\"spec\":{\"ipWhiteList\":{\"sourceRange\":[\"$wifi_cidr\"]}}}"
+kubectl --kubeconfig "$kubeconfig" rollout status deployment/postgres --namespace ai-lan --timeout=180s
 kubectl --kubeconfig "$kubeconfig" rollout restart deployment/gateway deployment/frontend --namespace ai-lan
 kubectl --kubeconfig "$kubeconfig" rollout status deployment/gateway --namespace ai-lan --timeout=180s
 echo "Application is ready."

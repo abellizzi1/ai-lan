@@ -4,6 +4,10 @@ metadata:
   name: gateway
 spec:
   replicas: 1
+  # This personal stack has one gateway replica. Recreate avoids a stuck old
+  # replica blocking deployment while secrets or the local database change.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: gateway
@@ -12,6 +16,11 @@ spec:
       labels:
         app: gateway
     spec:
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command: ["sh", "-c", "until pg_isready -h postgres -U ai_gateway; do sleep 2; done"]
       containers:
         - name: gateway
           image: local/ai-gateway:dev
@@ -19,11 +28,13 @@ spec:
           ports:
             - containerPort: 8000
           env:
-            - name: DATABASE_URL
-              value: postgresql://ai_gateway:$(POSTGRES_PASSWORD)@postgres:5432/ai_gateway
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef: {name: gateway-secrets, key: postgres-password}
+            # Kubernetes expands $(VAR) using variables declared earlier in
+            # this list, so POSTGRES_PASSWORD must precede DATABASE_URL.
+            - name: DATABASE_URL
+              value: postgresql://ai_gateway:$(POSTGRES_PASSWORD)@postgres:5432/ai_gateway
             - name: GATEWAY_API_KEY
               valueFrom:
                 secretKeyRef: {name: gateway-secrets, key: gateway-api-key}
