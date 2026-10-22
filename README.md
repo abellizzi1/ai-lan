@@ -2,6 +2,7 @@
 
 TODOs:
 - auth
+- dns? instead of ugly ip
 - remove unneeded things (Traefik?)
 - hookup model provider endpoint
 - add tracking of tokens used per user
