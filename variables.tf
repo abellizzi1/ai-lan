@@ -10,16 +10,6 @@ variable "http_port" {
   default     = 8080
 }
 
-variable "wifi_cidr" {
-  description = "Your Wi-Fi IPv4 subnet allowed through Traefik (for example 192.168.1.0/24)."
-  type        = string
-
-  validation {
-    condition     = var.wifi_cidr == trimspace(var.wifi_cidr) && can(cidrnetmask(var.wifi_cidr))
-    error_message = "wifi_cidr must be a whitespace-free IPv4 CIDR, for example 192.168.0.0/24."
-  }
-}
-
 variable "gateway_api_key" {
   description = "Initial client API key for the gateway. Supply through TF_VAR_gateway_api_key."
   type        = string

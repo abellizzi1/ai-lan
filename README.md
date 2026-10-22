@@ -17,7 +17,7 @@ The scripts Terraform calls are all in `scripts/` and run in this order:
 
 1. `create-cluster.sh` creates (or reuses) the `ai-lan` K3s cluster and writes `.kubeconfig`.
 2. `build-image.sh` builds `services/gateway` and imports that image into K3s. K3s has its own image store, distinct from Docker's local image list.
-3. `deploy.sh` creates the Kubernetes secret, waits for K3s's bundled Traefik ingress CRD, applies the manifests, configures the Wi-Fi CIDR restriction, waits for PostgreSQL, then waits for the gateway.
+3. `deploy.sh` creates the Kubernetes secret, applies the manifests, waits for PostgreSQL, then waits for the gateway.
 
 If Docker Desktop removes or resets the local K3s containers, `deploy.sh` detects the missing server container, recreates the local cluster, and re-imports the gateway image before applying the application.
 
@@ -57,15 +57,13 @@ printf 'Gateway key: %s\n' "$TF_VAR_gateway_api_key"
 
 Do not commit any of these values to a file in this repository.
 
-You also need your Wi-Fi network CIDR, but it is not a secret or an environment variable. Find it in your router's LAN/DHCP settings. For example, if router clients receive addresses from `192.168.1.2` through `192.168.1.254` with mask `255.255.255.0`, the CIDR is `192.168.1.0/24`. Your router also shows your laptop's LAN address, which is the address other devices will use to reach the service.
-
 ## Deploy
 
-Still inside the Ubuntu shell, initialize Terraform and apply the configuration. Replace the example CIDR with yours:
+Still inside the Ubuntu shell, initialize Terraform and apply the configuration:
 
 ```sh
 terraform init
-terraform apply -var='wifi_cidr=192.168.1.0/24'
+terraform apply
 ```
 
 Terraform will show its plan and ask for confirmation. On completion it prints the website and API URLs, using `YOUR_LAPTOP_LAN_IP` as a reminder to substitute the actual LAN address reported by your router.
@@ -74,11 +72,10 @@ The default provider endpoint is OpenAI's `https://api.openai.com/v1`. For anoth
 
 ```sh
 terraform apply \
-  -var='wifi_cidr=192.168.1.0/24' \
   -var='provider_api_base=https://provider.example/v1'
 ```
 
-The service is published by Docker Desktop on port `8080` by default. From a device on the permitted Wi-Fi, open `http://YOUR_LAPTOP_LAN_IP:8080`. Enter the gateway key in the page, or call:
+The service is published by Docker Desktop on port `8080` by default. From a device on your Wi-Fi, open `http://YOUR_LAPTOP_LAN_IP:8080`. Enter the gateway key in the page, or call:
 
 ```sh
 curl http://YOUR_LAPTOP_LAN_IP:8080/v1/chat/completions \
@@ -86,8 +83,6 @@ curl http://YOUR_LAPTOP_LAN_IP:8080/v1/chat/completions \
   -H 'X-API-Key: YOUR_SAVED_GATEWAY_KEY' \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}'
 ```
-
-The Traefik middleware permits only `wifi_cidr`. Configure the host firewall separately to allow TCP 8080 only from that same private Wi-Fi subnet; do not create a router port-forward and do not allow the port on public networks. Validate access from a second Wi-Fi device before relying on the restriction.
 
 ## Operations
 
@@ -98,7 +93,7 @@ kubectl --kubeconfig /workspace/.kubeconfig get pods -n ai-lan
 kubectl --kubeconfig /workspace/.kubeconfig logs deployment/gateway -n ai-lan
 ```
 
-Changing gateway source files then re-running the same `terraform apply` command rebuilds and redeploys the image. To rotate a secret, replace its environment variable, then run `terraform apply -replace=terraform_data.application` with the same Wi-Fi CIDR. To destroy the cluster, run `terraform destroy` before leaving the Ubuntu shell.
+Changing gateway source files then re-running `terraform apply` rebuilds and redeploys the image. To rotate a secret, replace its environment variable, then run `terraform apply -replace=terraform_data.application`. To destroy the cluster, run `terraform destroy` before leaving the Ubuntu shell.
 
 ## How the container works
 

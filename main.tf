@@ -47,7 +47,7 @@ resource "terraform_data" "application" {
   depends_on = [terraform_data.cluster, terraform_data.images]
 
   provisioner "local-exec" {
-    command     = "sh '${path.module}/scripts/deploy.sh' '${var.cluster_name}' '${var.http_port}' '${var.wifi_cidr}' '${var.provider_api_base}'"
+    command     = "sh '${path.module}/scripts/deploy.sh' '${var.cluster_name}' '${var.http_port}' '${var.provider_api_base}'"
     interpreter = ["/bin/sh", "-c"]
     environment = {
       GATEWAY_API_KEY   = var.gateway_api_key
