@@ -1,4 +1,12 @@
-# Private Wi-Fi AI gateway
+# Private AI gateway
+
+TODOs:
+- auth
+- remove unneeded things (Traefik?)
+- hookup model provider endpoint
+- add tracking of tokens used per user
+- cleanup UI
+- firewalls to prevent external connections? research if this is actually needed
 
 This project runs all tooling inside an Ubuntu container. Terraform uses k3d to create K3s containers in Docker, then deploys a web UI, FastAPI gateway, PostgreSQL, and Traefik ingress. The gateway checks a client API key, applies a daily request quota, writes request metadata to PostgreSQL, and forwards requests to an OpenAI-compatible hosted inference API.
 
