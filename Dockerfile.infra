@@ -1,0 +1,20 @@
+FROM ubuntu:24.04
+
+ARG K3D_VERSION=v5.8.3
+ARG KUBECTL_VERSION=v1.31.4
+ARG TERRAFORM_VERSION=1.10.5
+
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      ca-certificates curl unzip docker.io openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSLo /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+    && unzip /tmp/terraform.zip -d /usr/local/bin \
+    && rm /tmp/terraform.zip \
+    && curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+    && chmod +x /usr/local/bin/kubectl \
+    && curl -fsSLo /usr/local/bin/k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64" \
+    && chmod +x /usr/local/bin/k3d
+
+WORKDIR /workspace
+CMD ["bash"]
