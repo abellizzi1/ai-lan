@@ -31,6 +31,7 @@ spec:
         # PVC means normal pod restarts do not download it again.
         - name: pull-default-model
           image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -ec
@@ -46,6 +47,7 @@ spec:
       containers:
         - name: ollama
           image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 11434
           resources:
