@@ -4,6 +4,7 @@ set -eu
 cluster_name="$1"
 http_port="$2"
 provider_api_base="$3"
+enable_ollama="${4:-false}"
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 kubeconfig="$project_root/.kubeconfig"
 
@@ -49,10 +50,16 @@ kubectl --kubeconfig "$kubeconfig" create secret generic gateway-secrets \
   --dry-run=client -o yaml | kubectl --kubeconfig "$kubeconfig" apply -f -
 
 kubectl --kubeconfig "$kubeconfig" apply -k "$project_root/k8s/base"
+if [ "$enable_ollama" = "true" ]; then
+  kubectl --kubeconfig "$kubeconfig" apply -f "$project_root/k8s/base/ollama.yaml"
+else
+  kubectl --kubeconfig "$kubeconfig" delete -f "$project_root/k8s/base/ollama.yaml" --ignore-not-found
+fi
 kubectl --kubeconfig "$kubeconfig" rollout status deployment/postgres --namespace ai-lan --timeout=180s
-# The first deployment downloads the local model (about 292 MB). Do not report
-# the application ready until the model can actually receive requests.
-kubectl --kubeconfig "$kubeconfig" rollout status deployment/ollama --namespace ai-lan --timeout=600s
+if [ "$enable_ollama" = "true" ]; then
+  # The first deployment downloads the local model (about 292 MB).
+  kubectl --kubeconfig "$kubeconfig" rollout status deployment/ollama --namespace ai-lan --timeout=600s
+fi
 kubectl --kubeconfig "$kubeconfig" rollout restart deployment/gateway deployment/frontend --namespace ai-lan
 kubectl --kubeconfig "$kubeconfig" rollout status deployment/gateway --namespace ai-lan --timeout=180s
 echo "Application is ready."

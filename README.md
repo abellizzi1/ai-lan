@@ -10,7 +10,7 @@ TODOs:
 - firewalls to prevent external connections? research if this is actually needed
 - edit teardown script so no input is necessary
 
-This project runs all tooling within a containerized Ubuntu environment. Terraform uses k3d to create K3s containers in Docker, then deploys a web UI, FastAPI gateway, PostgreSQL, and Traefik ingress. The gateway checks a client API key, applies a daily request quota, writes request metadata to PostgreSQL, and forwards requests to an OpenAI-compatible hosted inference API.
+This project runs all tooling within a containerized Ubuntu environment. Terraform uses k3d to create K3s containers in Docker, then deploys a web UI, FastAPI gateway, PostgreSQL, and Traefik ingress. The gateway checks a client API key, applies a daily request quota, writes request metadata to PostgreSQL, and forwards requests to an OpenAI-compatible inference API. By default, inference goes to OpenAI; Ollama can be enabled as an in-cluster local provider.
 
 The only required host application is Docker running Linux containers. Terraform, k3d, kubectl, Docker CLI, and every deployment script run inside the provided Ubuntu image; there are no PowerShell scripts or host-language dependencies.
 
@@ -42,7 +42,7 @@ The second command opens a shell *inside Ubuntu*. Run every remaining command in
 
 ## Values you need
 
-Set these three environment variables inside the Ubuntu shell. Terraform automatically maps a `TF_VAR_name` environment variable to its matching Terraform input variable.
+Set the gateway and database values inside the Ubuntu shell. For hosted inference, also set the provider key; it can be skipped when using Ollama. Terraform automatically maps a `TF_VAR_name` environment variable to its matching Terraform input variable.
 
 ```bash
 # A key you create. Browser/API clients will use it in the X-API-Key header.
@@ -52,12 +52,12 @@ export TF_VAR_gateway_api_key="$(openssl rand -hex 32)"
 # Hex avoids URL-escaping issues in the database connection string.
 export TF_VAR_postgres_password="$(openssl rand -hex 24)"
 
-# Copy this from the API-key page of your hosted inference provider.
-# With the default configuration, create/copy an OpenAI API key from platform.openai.com.
+# For hosted inference, copy this from your provider's API-key page.
+# The default provider is OpenAI. Skip this when enabling local Ollama.
 export TF_VAR_provider_api_key='paste-provider-key-here'
 ```
 
-For the default OpenAI provider, create a normal project API key in the [OpenAI Platform API keys page](https://platform.openai.com/api-keys), then paste that value as `TF_VAR_provider_api_key`. Do not use an organization Admin key for this application. Other providers have an equivalent API-key page in their dashboard.
+For the default OpenAI provider, create a normal project API key in the [OpenAI Platform API keys page](https://platform.openai.com/api-keys), then paste that value as `TF_VAR_provider_api_key`. Do not use an organization Admin key for this application. Other providers have an equivalent API-key page in their dashboard. For another OpenAI-compatible provider, also set `TF_VAR_provider_api_base` to its documented API base URL.
 
 The first two commands generated values without displaying them. Print and save the gateway key in a password manager now; it is the value you enter in the website. The PostgreSQL password normally never needs to be used again.
 
@@ -78,12 +78,20 @@ terraform apply
 
 Terraform will show its plan and ask for confirmation. On completion it prints the website and API URLs, using `YOUR_LAPTOP_LAN_IP` as a reminder to substitute the actual LAN address reported by your router.
 
-The default provider endpoint is OpenAI's `https://api.openai.com/v1`. For another OpenAI-compatible provider, also provide its documented API base URL:
+The default provider endpoint is OpenAI's `https://api.openai.com/v1`. To use another OpenAI-compatible hosted provider, set its documented API base URL:
 
 ```bash
 terraform apply \
   -var='provider_api_base=https://provider.example/v1'
 ```
+
+To run inference locally with Ollama instead, enable it during apply. The first deployment downloads the configured model (about 292 MB); no hosted provider key is needed:
+
+```bash
+terraform apply -var='enable_ollama=true'
+```
+
+To switch back to hosted inference, apply with `-var='enable_ollama=false'` (the default) and set `TF_VAR_provider_api_key` again if it is not already set in the shell.
 
 The service is published by Docker Desktop on port `8080` by default. From a device on your Wi-Fi, open `http://YOUR_LAPTOP_LAN_IP:8080`. Enter the gateway key in the page, or call:
 
