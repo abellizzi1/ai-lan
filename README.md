@@ -11,7 +11,7 @@ TODOs:
 - need to change output box to rolling chat instead of one output each time
 - UI improvements - ugly right now
 
-This project runs all tooling within a containerized Ubuntu environment. Terraform uses k3d to create K3s containers in Docker, then deploys a web UI, FastAPI gateway, PostgreSQL, and Traefik ingress. The gateway checks a client API key, applies a daily request quota, writes request metadata to PostgreSQL, and forwards requests to an OpenAI-compatible inference API. By default, inference goes to OpenAI; Ollama can be enabled as an in-cluster local provider.
+Self-hosted LAN AI gateway for OpenAI-compatible APIs, with household accounts, request limits, and usage logging. Terraform deploys the web UI, gateway, PostgreSQL, and ingress to a local k3d cluster. Inference uses OpenAI by default or optional in-cluster Ollama.
 
 The only required host application is Docker running Linux containers. Terraform, k3d, kubectl, Docker CLI, and every deployment script run inside the provided Ubuntu image; there are no PowerShell scripts or host-language dependencies.
 
