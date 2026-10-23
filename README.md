@@ -1,4 +1,4 @@
-# Private AI gateway
+# Private AI Gateway
 
 TODOs:
 - auth
@@ -8,10 +8,11 @@ TODOs:
 - add tracking of tokens used per user
 - cleanup UI
 - firewalls to prevent external connections? research if this is actually needed
+- edit teardown script so no input is necessary
 
-This project runs all tooling inside an Ubuntu container. Terraform uses k3d to create K3s containers in Docker, then deploys a web UI, FastAPI gateway, PostgreSQL, and Traefik ingress. The gateway checks a client API key, applies a daily request quota, writes request metadata to PostgreSQL, and forwards requests to an OpenAI-compatible hosted inference API.
+This project runs all tooling within a containerized Ubuntu environment. Terraform uses k3d to create K3s containers in Docker, then deploys a web UI, FastAPI gateway, PostgreSQL, and Traefik ingress. The gateway checks a client API key, applies a daily request quota, writes request metadata to PostgreSQL, and forwards requests to an OpenAI-compatible hosted inference API.
 
-The only required host application is Docker Desktop running Linux containers. Terraform, k3d, kubectl, Docker CLI, and every deployment script run inside the provided Ubuntu image; there are no PowerShell scripts or host-language dependencies.
+The only required host application is Docker running Linux containers. Terraform, k3d, kubectl, Docker CLI, and every deployment script run inside the provided Ubuntu image; there are no PowerShell scripts or host-language dependencies.
 
 This is a starter stack for personal use, not a production security boundary. It has one shared client key, no user identity provider, and no TLS termination.
 
@@ -32,9 +33,9 @@ If Docker Desktop removes or resets the local K3s containers, `deploy.sh` detect
 
 Nothing needs to be installed outside Docker Desktop. Start by building the runner:
 
-```sh
+```bash
 docker compose build infra
-docker compose run --rm --entrypoint bash infra
+docker compose run --rm infra bash
 ```
 
 The second command opens a shell *inside Ubuntu*. Run every remaining command in that shell.
@@ -43,7 +44,7 @@ The second command opens a shell *inside Ubuntu*. Run every remaining command in
 
 Set these three environment variables inside the Ubuntu shell. Terraform automatically maps a `TF_VAR_name` environment variable to its matching Terraform input variable.
 
-```sh
+```bash
 # A key you create. Browser/API clients will use it in the X-API-Key header.
 export TF_VAR_gateway_api_key="$(openssl rand -hex 32)"
 
@@ -60,7 +61,7 @@ For the default OpenAI provider, create a normal project API key in the [OpenAI 
 
 The first two commands generated values without displaying them. Print and save the gateway key in a password manager now; it is the value you enter in the website. The PostgreSQL password normally never needs to be used again.
 
-```sh
+```bash
 printf 'Gateway key: %s\n' "$TF_VAR_gateway_api_key"
 ```
 
@@ -70,7 +71,7 @@ Do not commit any of these values to a file in this repository.
 
 Still inside the Ubuntu shell, initialize Terraform and apply the configuration:
 
-```sh
+```bash
 terraform init
 terraform apply
 ```
@@ -79,14 +80,14 @@ Terraform will show its plan and ask for confirmation. On completion it prints t
 
 The default provider endpoint is OpenAI's `https://api.openai.com/v1`. For another OpenAI-compatible provider, also provide its documented API base URL:
 
-```sh
+```bash
 terraform apply \
   -var='provider_api_base=https://provider.example/v1'
 ```
 
 The service is published by Docker Desktop on port `8080` by default. From a device on your Wi-Fi, open `http://YOUR_LAPTOP_LAN_IP:8080`. Enter the gateway key in the page, or call:
 
-```sh
+```bash
 curl http://YOUR_LAPTOP_LAN_IP:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -H 'X-API-Key: YOUR_SAVED_GATEWAY_KEY' \
@@ -97,12 +98,12 @@ curl http://YOUR_LAPTOP_LAN_IP:8080/v1/chat/completions \
 
 All commands below run from the same Ubuntu shell, where the `TF_VAR_*` values are still set:
 
-```sh
+```bash
 kubectl --kubeconfig /workspace/.kubeconfig get pods -n ai-lan
 kubectl --kubeconfig /workspace/.kubeconfig logs deployment/gateway -n ai-lan
 ```
 
-Changing gateway source files then re-running `terraform apply` rebuilds and redeploys the image. To rotate a secret, replace its environment variable, then run `terraform apply -replace=terraform_data.application`. To destroy the cluster, run `terraform destroy` before leaving the Ubuntu shell.
+Changing gateway source files then re-running `terraform apply` rebuilds and redeploys the image. To rotate a secret, replace its environment variable, then run `terraform apply -replace=terraform_data.application`. To destroy the cluster, run `./scripts/teardown.sh`.
 
 ## How the container works
 

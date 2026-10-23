@@ -10,14 +10,14 @@ resource "terraform_data" "cluster" {
   }
 
   provisioner "local-exec" {
-    command     = "sh '${path.module}/scripts/create-cluster.sh' '${var.cluster_name}' '${var.http_port}'"
-    interpreter = ["/bin/sh", "-c"]
+    command     = "bash '${path.module}/scripts/create-cluster.sh' '${var.cluster_name}' '${var.http_port}'"
+    interpreter = ["/bin/bash", "-c"]
   }
 
   provisioner "local-exec" {
     when        = destroy
     command     = "k3d cluster delete \"$K3D_CLUSTER_NAME\""
-    interpreter = ["/bin/sh", "-c"]
+    interpreter = ["/bin/bash", "-c"]
     environment = {
       K3D_CLUSTER_NAME = self.input.cluster_name
     }
@@ -28,8 +28,8 @@ resource "terraform_data" "images" {
   triggers_replace = [local.source_hash, terraform_data.cluster.id]
 
   provisioner "local-exec" {
-    command     = "sh '${path.module}/scripts/build-image.sh' '${var.cluster_name}' '${local.image_name}'"
-    interpreter = ["/bin/sh", "-c"]
+    command     = "bash '${path.module}/scripts/build-image.sh' '${var.cluster_name}' '${local.image_name}'"
+    interpreter = ["/bin/bash", "-c"]
   }
 }
 
@@ -47,8 +47,8 @@ resource "terraform_data" "application" {
   depends_on = [terraform_data.cluster, terraform_data.images]
 
   provisioner "local-exec" {
-    command     = "sh '${path.module}/scripts/deploy.sh' '${var.cluster_name}' '${var.http_port}' '${var.provider_api_base}'"
-    interpreter = ["/bin/sh", "-c"]
+    command     = "bash '${path.module}/scripts/deploy.sh' '${var.cluster_name}' '${var.http_port}' '${var.provider_api_base}'"
+    interpreter = ["/bin/bash", "-c"]
     environment = {
       GATEWAY_API_KEY   = var.gateway_api_key
       PROVIDER_API_KEY  = var.provider_api_key

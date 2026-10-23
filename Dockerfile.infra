@@ -6,9 +6,8 @@ ARG TERRAFORM_VERSION=1.10.5
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
       ca-certificates curl unzip docker.io openssl \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN curl -fsSLo /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSLo /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
     && unzip /tmp/terraform.zip -d /usr/local/bin \
     && rm /tmp/terraform.zip \
     && curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \

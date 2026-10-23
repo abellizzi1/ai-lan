@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/bin/bash
 set -eu
 
 cluster_name="$1"
@@ -16,7 +16,7 @@ kubeconfig="$project_root/.kubeconfig"
 server_container="k3d-$cluster_name-server-0"
 if ! docker inspect "$server_container" >/dev/null 2>&1; then
   echo "K3s server container is missing; recreating local cluster $cluster_name."
-  sh "$project_root/scripts/create-cluster.sh" "$cluster_name" "$http_port"
+  bash "$project_root/scripts/create-cluster.sh" "$cluster_name" "$http_port"
 fi
 # K3s has a separate containerd image store. Importing is harmless when the
 # image already exists there and is required after any local cluster rebuild.

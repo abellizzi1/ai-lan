@@ -20,7 +20,7 @@ spec:
       initContainers:
         - name: wait-for-postgres
           image: postgres:16-alpine
-          command: ["sh", "-c", "until pg_isready -h postgres -U ai_gateway; do sleep 2; done"]
+          command: ["bash", "-c", "until pg_isready -h postgres -U ai_gateway; do sleep 2; done"]
       containers:
         - name: gateway
           image: local/ai-gateway:dev

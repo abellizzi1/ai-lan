@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/bin/bash
 set -eu
 
 cluster_name="$1"

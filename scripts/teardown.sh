@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/bin/bash
 
 kubectl --kubeconfig /workspace/.kubeconfig -n ai-lan scale deployment/gateway --replicas=0
 kubectl --kubeconfig /workspace/.kubeconfig -n ai-lan scale deployment/postgres --replicas=0
