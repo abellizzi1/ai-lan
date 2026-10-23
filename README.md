@@ -1,8 +1,9 @@
 # Private AI Gateway
 
 TODOs:
-- remove unneeded things (Traefik?)
 - add tracking of tokens used per user
+- limit tokens per user
+- ability to stop a user from being able to send requests
 - admin is the only person who can create an account - leave this?
 - dns setup in personal router
 
