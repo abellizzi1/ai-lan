@@ -94,7 +94,7 @@ The website uses `gemma3:270m` when Ollama is enabled and `gpt-4o-mini` with hos
 
 The service is published by Docker Desktop on port `8080` by default. From a device on your Wi-Fi, open `http://YOUR_LAPTOP_LAN_IP:8080` and sign in with the administrator username and password. The administrator can create separate household accounts in the page. Chat API requests use the login session cookie.
 
-The website keeps separate conversations in the current browser and sends earlier messages with each reply so the model has context. These chats are stored on that device; they do not sync between devices or live in PostgreSQL.
+Conversations are stored in PostgreSQL under each account, so they appear on every device signed in as that user. The gateway sends earlier messages with each reply for context. Chats previously saved in a browser are imported when that user signs in again.
 
 ```bash
 curl -c cookies.txt -X POST http://YOUR_LAPTOP_LAN_IP:8080/auth/login \

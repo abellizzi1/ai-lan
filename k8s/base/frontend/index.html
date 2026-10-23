@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -65,6 +65,21 @@
     .message-body { max-width: min(90%, 680px); min-width: 0; padding-top: 4px; }
     .message-name { font-weight: 750; font-size: 12px; color: #5e736d; margin-bottom: 6px; }
     .message-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; font-size: 15px; }
+    .message-text.markdown { white-space: normal; }
+    .markdown p { margin: 0 0 12px; }
+    .markdown p:last-child, .markdown ul:last-child, .markdown ol:last-child, .markdown pre:last-child { margin-bottom: 0; }
+    .markdown ul, .markdown ol { margin: 0 0 12px; padding-left: 25px; }
+    .markdown li { margin: 4px 0; }
+    .markdown h1, .markdown h2, .markdown h3 { line-height: 1.3; margin: 18px 0 8px; letter-spacing: -.02em; }
+    .markdown h1 { font-size: 23px; }.markdown h2 { font-size: 19px; }.markdown h3 { font-size: 16px; }
+    .markdown strong { font-weight: 750; }
+    .markdown code { padding: 2px 5px; border-radius: 5px; background: #e8eeea; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .9em; }
+    .markdown pre { overflow-x: auto; padding: 14px; border-radius: 11px; background: #172a2c; color: #edf6ef; margin: 0 0 12px; }
+    .markdown pre code { padding: 0; background: none; color: inherit; }
+    .markdown blockquote { margin: 0 0 12px; padding: 2px 0 2px 14px; border-left: 3px solid #9dc5af; color: #52655f; }
+    .markdown a { color: #08775d; text-decoration: underline; }
+    .markdown table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; margin-bottom: 12px; }
+    .markdown th, .markdown td { border: 1px solid #d5e1d9; padding: 7px 9px; text-align: left; }
     .message.user .message-body { background: #e4f2e9; border: 1px solid #d5eadf; padding: 11px 15px; border-radius: 16px 16px 4px 16px; }
     .message.user .message-name { display: none; }
     .composer-wrap { flex: none; padding: 12px 22px 20px; background: linear-gradient(#f7f8f500, #f7f8f5 25%); }
@@ -100,7 +115,7 @@
 <body>
   <section id="login-screen" class="login-screen">
     <form id="login-form" class="login-card">
-      <span class="mark" aria-hidden="true">✳</span>
+      <span class="mark" aria-hidden="true">&#x2733;</span>
       <h1>Welcome home.</h1>
       <p class="muted">Sign in to your private AI space.</p>
       <label for="username">Username</label>
@@ -115,21 +130,21 @@
   <div id="app" class="app" hidden>
     <div id="mobile-shade" class="mobile-shade"></div>
     <aside id="sidebar" class="sidebar">
-      <div class="brand"><span class="mark" aria-hidden="true">✳</span> Hearth AI</div>
+      <div class="brand"><span class="mark" aria-hidden="true">&#x2733;</span> Hearth AI</div>
       <button id="new-chat" class="new-chat"><span aria-hidden="true">+</span> New chat</button>
       <div class="side-label">Your conversations</div>
       <nav id="chat-list" class="chat-list" aria-label="Conversations"></nav>
       <div class="sidebar-bottom">
         <button id="admin-button" class="side-action" hidden>Create household account</button>
         <div id="user-name" class="user-name"></div>
-        <div class="storage-note">Chats saved in this browser</div>
+        <div class="storage-note">Chats sync across your devices</div>
         <button id="logout" class="side-action">Sign out</button>
       </div>
     </aside>
     <main class="main">
       <header class="topbar">
         <div class="topbar-title">
-          <button id="menu-button" class="icon-button menu-button" aria-label="Open menu">☰</button>
+          <button id="menu-button" class="icon-button menu-button" aria-label="Open menu">&#x2630;</button>
           <h2 id="chat-title">New chat</h2>
           <span id="model-pill" class="model-pill"></span>
         </div>
@@ -139,7 +154,7 @@
       <div class="composer-wrap">
         <form id="composer" class="composer">
           <textarea id="prompt" rows="2" placeholder="Message your AI..." aria-label="Message" required></textarea>
-          <div class="composer-actions"><span class="composer-hint">Enter to send · Shift+Enter for a new line</span><button id="send" class="send-button" type="submit" aria-label="Send message">↑</button></div>
+          <div class="composer-actions"><span class="composer-hint">Enter to send &middot; Shift+Enter for a new line</span><button id="send" class="send-button" type="submit" aria-label="Send message">&uarr;</button></div>
         </form>
         <div id="chat-status" class="chat-status" role="status"></div>
       </div>
@@ -147,7 +162,7 @@
   </div>
 
   <dialog id="admin-dialog">
-    <button id="close-admin" class="dialog-close" aria-label="Close">×</button>
+    <button id="close-admin" class="dialog-close" aria-label="Close">&times;</button>
     <form id="admin-form">
       <h2>Create account</h2>
       <p class="muted">Give someone in your household their own login.</p>
@@ -160,197 +175,6 @@
     </form>
   </dialog>
 
-  <script>
-    const $ = (selector) => document.querySelector(selector);
-    let currentUser = null;
-    let chats = [];
-    let activeId = null;
-    let sending = false;
-
-    function storageKey(suffix) { return `hearth-ai:${encodeURIComponent(currentUser.username)}:${suffix}`; }
-    function saveChats() {
-      try {
-        localStorage.setItem(storageKey('chats'), JSON.stringify(chats));
-        if (activeId) localStorage.setItem(storageKey('active'), activeId);
-        else localStorage.removeItem(storageKey('active'));
-      } catch { setChatStatus('This browser could not save chat history.', true); }
-    }
-    function loadChats() {
-      try {
-        const stored = JSON.parse(localStorage.getItem(storageKey('chats')) || '[]');
-        chats = Array.isArray(stored) ? stored.filter(chat => chat && typeof chat.id === 'string' && Array.isArray(chat.messages)) : [];
-        activeId = localStorage.getItem(storageKey('active'));
-        if (!chats.some(chat => chat.id === activeId)) activeId = chats[0]?.id || null;
-      } catch { chats = []; activeId = null; }
-      render();
-    }
-    function currentChat() { return chats.find(chat => chat.id === activeId); }
-    function setChatStatus(message, error = false) {
-      $('#chat-status').textContent = message;
-      $('#chat-status').classList.toggle('error', error);
-    }
-    function closeSidebar() { $('#sidebar').classList.remove('open'); $('#mobile-shade').classList.remove('open'); }
-    function renderList() {
-      const list = $('#chat-list');
-      list.replaceChildren();
-      if (!chats.length) {
-        const empty = document.createElement('p');
-        empty.className = 'side-empty';
-        empty.textContent = 'Your conversations will appear here.';
-        list.append(empty);
-        return;
-      }
-      for (const chat of [...chats].sort((a, b) => b.updatedAt - a.updatedAt)) {
-        const button = document.createElement('button');
-        button.className = `chat-item${chat.id === activeId ? ' active' : ''}`;
-        button.textContent = chat.title || 'New chat';
-        button.title = chat.title || 'New chat';
-        button.onclick = () => { activeId = chat.id; saveChats(); render(); closeSidebar(); };
-        list.append(button);
-      }
-    }
-    function renderThread() {
-      const thread = $('#thread');
-      thread.replaceChildren();
-      const chat = currentChat();
-      $('#chat-title').textContent = chat?.title || 'New chat';
-      $('#delete-chat').hidden = !chat;
-      if (!chat?.messages.length) {
-        const empty = document.createElement('div');
-        empty.className = 'empty-state';
-        empty.innerHTML = '<div class="empty-orb" aria-hidden="true">✳</div><h1>What’s on your mind?</h1><p>Start a conversation with your local AI gateway.</p>';
-        const suggestions = document.createElement('div');
-        suggestions.className = 'suggestions';
-        for (const text of ['Help me plan dinner', 'Explain something simply', 'Brainstorm an idea']) {
-          const button = document.createElement('button');
-          button.className = 'suggestion';
-          button.textContent = text;
-          button.onclick = () => { $('#prompt').value = text; $('#prompt').focus(); };
-          suggestions.append(button);
-        }
-        empty.append(suggestions);
-        thread.append(empty);
-        return;
-      }
-      for (const message of chat.messages) {
-        const row = document.createElement('article');
-        row.className = `message ${message.role}`;
-        const body = document.createElement('div');
-        body.className = 'message-body';
-        const name = document.createElement('div');
-        name.className = 'message-name';
-        name.textContent = message.role === 'assistant' ? 'Hearth AI' : 'You';
-        const content = document.createElement('div');
-        content.className = 'message-text';
-        content.textContent = message.content;
-        body.append(name, content);
-        if (message.role === 'assistant') {
-          const avatar = document.createElement('span');
-          avatar.className = 'avatar';
-          avatar.textContent = '✳';
-          row.append(avatar);
-        }
-        row.append(body);
-        thread.append(row);
-      }
-      $('#scroll-area').scrollTop = $('#scroll-area').scrollHeight;
-    }
-    function render() { renderList(); renderThread(); }
-    async function showSession() {
-      try {
-        const response = await fetch('/auth/me');
-        if (!response.ok) throw new Error('signed out');
-        currentUser = await response.json();
-        $('#user-name').textContent = currentUser.username;
-        $('#model-pill').textContent = currentUser.default_model || 'AI model';
-        $('#admin-button').hidden = !currentUser.is_admin;
-        $('#login-screen').hidden = true;
-        $('#app').hidden = false;
-        loadChats();
-      } catch {
-        currentUser = null;
-        $('#app').hidden = true;
-        $('#login-screen').hidden = false;
-      }
-    }
-    $('#login-form').onsubmit = async (event) => {
-      event.preventDefault();
-      $('#login-error').textContent = '';
-      try {
-        const response = await fetch('/auth/login', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({username: $('#username').value, password: $('#password').value})});
-        if (!response.ok) throw new Error('Invalid username or password.');
-        $('#password').value = '';
-        await showSession();
-      } catch (error) { $('#login-error').textContent = error.message || 'Could not sign in.'; }
-    };
-    $('#logout').onclick = async () => {
-      await fetch('/auth/logout', {method: 'POST'}).catch(() => {});
-      currentUser = null;
-      chats = [];
-      activeId = null;
-      closeSidebar();
-      $('#app').hidden = true;
-      $('#login-screen').hidden = false;
-      $('#login-error').textContent = '';
-    };
-    $('#new-chat').onclick = () => { activeId = null; saveChats(); render(); setChatStatus(''); closeSidebar(); $('#prompt').focus(); };
-    $('#delete-chat').onclick = () => {
-      if (!currentChat() || !confirm('Delete this conversation from this browser?')) return;
-      chats = chats.filter(chat => chat.id !== activeId);
-      activeId = chats[0]?.id || null;
-      saveChats(); render();
-    };
-    $('#menu-button').onclick = () => { $('#sidebar').classList.add('open'); $('#mobile-shade').classList.add('open'); };
-    $('#mobile-shade').onclick = closeSidebar;
-    $('#admin-button').onclick = () => { $('#admin-status').textContent = ''; $('#admin-dialog').showModal(); closeSidebar(); };
-    $('#close-admin').onclick = () => $('#admin-dialog').close();
-    $('#admin-form').onsubmit = async (event) => {
-      event.preventDefault();
-      const response = await fetch('/auth/users', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({username: $('#new-username').value, password: $('#new-password').value})}).catch(() => null);
-      if (!response) { $('#admin-status').textContent = 'Could not reach the gateway.'; return; }
-      const body = await response.json();
-      $('#admin-status').textContent = response.ok ? `Account ${body.username} created.` : (body.detail || 'Could not create account.');
-      if (response.ok) { $('#new-username').value = ''; $('#new-password').value = ''; }
-    };
-    $('#prompt').onkeydown = (event) => {
-      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('#composer').requestSubmit(); }
-    };
-    $('#composer').onsubmit = async (event) => {
-      event.preventDefault();
-      const text = $('#prompt').value.trim();
-      if (!text || sending || !currentUser) return;
-      sending = true;
-      $('#send').disabled = true;
-      setChatStatus('Thinking…');
-      let chat = currentChat();
-      if (!chat) {
-        chat = {id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, title: text.slice(0, 42), messages: [], updatedAt: Date.now()};
-        chats.unshift(chat);
-        activeId = chat.id;
-      }
-      chat.messages.push({role: 'user', content: text});
-      chat.updatedAt = Date.now();
-      $('#prompt').value = '';
-      saveChats(); render();
-      try {
-        const response = await fetch('/v1/chat/completions', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({messages: chat.messages.map(message => ({role: message.role, content: message.content}))})});
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || data.error?.message || `Request failed (${response.status}).`);
-        const reply = data.choices?.[0]?.message?.content;
-        if (typeof reply !== 'string') throw new Error('The provider returned an unexpected response.');
-        chat.messages.push({role: 'assistant', content: reply});
-        chat.updatedAt = Date.now();
-        saveChats(); render(); setChatStatus('');
-      } catch (error) {
-        chat.messages.pop();
-        if (!chat.messages.length) { chats = chats.filter(item => item.id !== chat.id); activeId = null; }
-        $('#prompt').value = text;
-        saveChats(); render();
-        setChatStatus(error.message || 'Could not send your message.', true);
-        if (error.message?.includes('log in')) showSession();
-      } finally { sending = false; $('#send').disabled = false; }
-    };
-    showSession();
-  </script>
+  <script src="/app.js" defer></script>
 </body>
 </html>

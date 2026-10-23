@@ -11,5 +11,6 @@ configMapGenerator:
   - name: frontend-page
     files:
       - frontend/index.html
+      - frontend/app.js
 generatorOptions:
   disableNameSuffixHash: true
