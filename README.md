@@ -1,15 +1,11 @@
 # Private AI Gateway
 
 TODOs:
-- dns? instead of ugly ip
-- remove unneeded things (Traefik?)
-- hookup model provider endpoint
 - add tracking of tokens used per user
-- firewalls to prevent external connections? research if this is actually needed
-- there is one output for everything, including login failures etc. - make this separate
+- limit tokens per user
+- ability to stop a user from being able to send requests
 - admin is the only person who can create an account - leave this?
-- need to change output box to rolling chat instead of one output each time
-- UI improvements - ugly right now
+- dns setup in personal router
 
 Self-hosted LAN AI gateway for OpenAI-compatible APIs, with household accounts, request limits, and usage logging. Terraform deploys the web UI, gateway, PostgreSQL, and ingress to a local k3d cluster. Inference uses OpenAI by default or optional in-cluster Ollama.
 
@@ -93,11 +89,15 @@ To run inference locally with Ollama instead, enable it during apply. The first 
 terraform apply -var='enable_ollama=true'
 ```
 
+The Ollama container image stays cached in Docker on your Windows machine. Each new k3d cluster imports that local copy, so teardown and re-apply do not download the image again. The model is stored in a cluster PVC and is downloaded again after teardown. To update the cached container image, run `docker pull ollama/ollama:latest` before applying.
+
 To switch back to hosted inference, apply with `-var='enable_ollama=false'` (the default) and set `TF_VAR_provider_api_key` again if it is not already set in the shell.
 
 The website uses `gemma3:270m` when Ollama is enabled and `gpt-4o-mini` with hosted inference. Set `-var='default_model=MODEL_NAME'` to choose another model. API clients may omit `model` to use the same default.
 
 The service is published by Docker Desktop on port `8080` by default. From a device on your Wi-Fi, open `http://YOUR_LAPTOP_LAN_IP:8080` and sign in with the administrator username and password. The administrator can create separate household accounts in the page. Chat API requests use the login session cookie.
+
+Conversations are stored in PostgreSQL under each account, so they appear on every device signed in as that user. The gateway sends earlier messages with each reply for context. Chats previously saved in a browser are imported when that user signs in again.
 
 ```bash
 curl -c cookies.txt -X POST http://YOUR_LAPTOP_LAN_IP:8080/auth/login \

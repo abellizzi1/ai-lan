@@ -30,6 +30,16 @@ fi
 # image already exists there and is required after any local cluster rebuild.
 k3d image import local/ai-gateway:dev --cluster "$cluster_name"
 
+if [ "$enable_ollama" = "true" ]; then
+  # Docker's image store survives k3d cluster deletion. Import its cached
+  # Ollama image into each new cluster without downloading it again.
+  ollama_image="ollama/ollama:latest"
+  if ! docker image inspect "$ollama_image" >/dev/null 2>&1; then
+    docker pull "$ollama_image"
+  fi
+  k3d image import "$ollama_image" --cluster "$cluster_name"
+fi
+
 # Every `docker compose run` starts a fresh runner container. Attach this runner
 # to the existing cluster network and refresh its internal-only kubeconfig.
 runner_id=$(cat /etc/hostname)
