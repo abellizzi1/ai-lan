@@ -1,4 +1,4 @@
-# Private AI Gateway
+# LAN AI Gateway
 
 TODOs:
 - add tracking of tokens used per user
