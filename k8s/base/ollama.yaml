@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      # gemma3:270m is about 292 MB. Leave room for Ollama metadata and a
+      # future small model without consuming a large part of the local disk.
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      initContainers:
+        # Download the default model before the API becomes available. The
+        # PVC means normal pod restarts do not download it again.
+        - name: pull-default-model
+          image: ollama/ollama:latest
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              ollama serve >/tmp/ollama.log 2>&1 &
+              ollama_pid=$!
+              trap 'kill "$ollama_pid"' EXIT
+              until ollama list >/dev/null 2>&1; do sleep 1; done
+              ollama pull gemma3:270m
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+          readinessProbe:
+            exec:
+              command: ["ollama", "show", "gemma3:270m"]
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+spec:
+  selector:
+    app: ollama
+  ports:
+    - port: 11434
+      targetPort: 11434

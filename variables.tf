@@ -13,23 +13,24 @@ variable "http_port" {
 variable "gateway_api_key" {
   description = "Initial client API key for the gateway. Supply through TF_VAR_gateway_api_key."
   type        = string
-  sensitive   = false
+  sensitive   = true
 }
 
 variable "provider_api_base" {
-  description = "OpenAI-compatible upstream API base URL, without a trailing slash."
+  description = "OpenAI-compatible upstream API base URL, without a trailing slash. Defaults to the in-cluster Ollama service."
   type        = string
-  default     = "https://api.openai.com/v1"
+  default     = "http://ollama:11434/v1"
 }
 
 variable "provider_api_key" {
-  description = "API key used by the gateway to call the hosted inference provider. Supply through TF_VAR_provider_api_key."
+  description = "API key used by the gateway to call an optional external OpenAI-compatible provider. Local Ollama ignores this value."
   type        = string
-  sensitive   = false
+  default     = "ollama"
+  sensitive   = true
 }
 
 variable "postgres_password" {
   description = "Password for the gateway PostgreSQL role. Supply through TF_VAR_postgres_password."
   type        = string
-  sensitive   = false
+  sensitive   = true
 }

@@ -4,6 +4,7 @@ namespace: ai-lan
 resources:
   - namespace.yaml
   - postgres.yaml
+  - ollama.yaml
   - gateway.yaml
   - frontend.yaml
   - network.yaml
