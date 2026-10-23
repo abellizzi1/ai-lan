@@ -1,15 +1,10 @@
 # Private AI Gateway
 
 TODOs:
-- dns? instead of ugly ip
 - remove unneeded things (Traefik?)
-- hookup model provider endpoint
 - add tracking of tokens used per user
-- firewalls to prevent external connections? research if this is actually needed
-- there is one output for everything, including login failures etc. - make this separate
 - admin is the only person who can create an account - leave this?
-- need to change output box to rolling chat instead of one output each time
-- UI improvements - ugly right now
+- dns setup in personal router
 
 Self-hosted LAN AI gateway for OpenAI-compatible APIs, with household accounts, request limits, and usage logging. Terraform deploys the web UI, gateway, PostgreSQL, and ingress to a local k3d cluster. Inference uses OpenAI by default or optional in-cluster Ollama.
 
@@ -98,6 +93,8 @@ To switch back to hosted inference, apply with `-var='enable_ollama=false'` (the
 The website uses `gemma3:270m` when Ollama is enabled and `gpt-4o-mini` with hosted inference. Set `-var='default_model=MODEL_NAME'` to choose another model. API clients may omit `model` to use the same default.
 
 The service is published by Docker Desktop on port `8080` by default. From a device on your Wi-Fi, open `http://YOUR_LAPTOP_LAN_IP:8080` and sign in with the administrator username and password. The administrator can create separate household accounts in the page. Chat API requests use the login session cookie.
+
+The website keeps separate conversations in the current browser and sends earlier messages with each reply so the model has context. These chats are stored on that device; they do not sync between devices or live in PostgreSQL.
 
 ```bash
 curl -c cookies.txt -X POST http://YOUR_LAPTOP_LAN_IP:8080/auth/login \

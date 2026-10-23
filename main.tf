@@ -46,6 +46,7 @@ resource "terraform_data" "application" {
     filesha256("${path.module}/k8s/base/kustomization.yaml"),
     filesha256("${path.module}/k8s/base/gateway.yaml"),
     filesha256("${path.module}/k8s/base/frontend.yaml"),
+    filesha256("${path.module}/k8s/base/frontend/index.html"),
     filesha256("${path.module}/k8s/base/ollama.yaml"),
     filesha256("${path.module}/k8s/base/postgres.yaml"),
     filesha256("${path.module}/k8s/base/network.yaml"),
