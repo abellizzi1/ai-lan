@@ -20,7 +20,7 @@ spec:
       initContainers:
         - name: wait-for-postgres
           image: postgres:16-alpine
-          command: ["sh", "-c", "until pg_isready -h postgres -U ai_gateway; do sleep 2; done"]
+          command: ["bash", "-c", "until pg_isready -h postgres -U ai_gateway; do sleep 2; done"]
       containers:
         - name: gateway
           image: local/ai-gateway:dev
@@ -38,12 +38,18 @@ spec:
             - name: GATEWAY_API_KEY
               valueFrom:
                 secretKeyRef: {name: gateway-secrets, key: gateway-api-key}
+            - name: GATEWAY_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef: {name: gateway-secrets, key: gateway-admin-username}
             - name: PROVIDER_API_KEY
               valueFrom:
                 secretKeyRef: {name: gateway-secrets, key: provider-api-key}
             - name: PROVIDER_API_BASE
               valueFrom:
                 secretKeyRef: {name: gateway-secrets, key: provider-api-base}
+            - name: DEFAULT_MODEL
+              valueFrom:
+                secretKeyRef: {name: gateway-secrets, key: default-model}
             - name: DAILY_REQUEST_LIMIT
               value: "100"
           readinessProbe:
