@@ -1,20 +1,21 @@
 # Private AI Gateway
 
 TODOs:
-- auth
 - dns? instead of ugly ip
 - remove unneeded things (Traefik?)
 - hookup model provider endpoint
 - add tracking of tokens used per user
-- cleanup UI
 - firewalls to prevent external connections? research if this is actually needed
-- edit teardown script so no input is necessary
+- there is one output for everything, including login failures etc. - make this separate
+- admin is the only person who can create an account - leave this?
+- need to change output box to rolling chat instead of one output each time
+- UI improvements - ugly right now
 
 This project runs all tooling within a containerized Ubuntu environment. Terraform uses k3d to create K3s containers in Docker, then deploys a web UI, FastAPI gateway, PostgreSQL, and Traefik ingress. The gateway checks a client API key, applies a daily request quota, writes request metadata to PostgreSQL, and forwards requests to an OpenAI-compatible inference API. By default, inference goes to OpenAI; Ollama can be enabled as an in-cluster local provider.
 
 The only required host application is Docker running Linux containers. Terraform, k3d, kubectl, Docker CLI, and every deployment script run inside the provided Ubuntu image; there are no PowerShell scripts or host-language dependencies.
 
-This is a starter stack for personal use, not a production security boundary. It has one shared client key, no user identity provider, and no TLS termination.
+This is a starter stack for personal use, not a production security boundary. It provides local username/password accounts, but currently serves over HTTP without TLS; use it only on a trusted home network until HTTPS is configured.
 
 ## Deployment flow
 
@@ -45,8 +46,9 @@ The second command opens a shell *inside Ubuntu*. Run every remaining command in
 Set the gateway and database values inside the Ubuntu shell. For hosted inference, also set the provider key; it can be skipped when using Ollama. Terraform automatically maps a `TF_VAR_name` environment variable to its matching Terraform input variable.
 
 ```bash
-# A key you create. Browser/API clients will use it in the X-API-Key header.
-export TF_VAR_gateway_api_key="$(openssl rand -hex 32)"
+# Initial administrator password (at least 12 characters). Keep it safe.
+export TF_VAR_gateway_api_key="$(openssl rand -hex 24)"
+export TF_VAR_gateway_admin_username='admin'
 
 # A password you create. It is used only between the gateway and internal PostgreSQL.
 # Hex avoids URL-escaping issues in the database connection string.
@@ -59,10 +61,10 @@ export TF_VAR_provider_api_key='paste-provider-key-here'
 
 For the default OpenAI provider, create a normal project API key in the [OpenAI Platform API keys page](https://platform.openai.com/api-keys), then paste that value as `TF_VAR_provider_api_key`. Do not use an organization Admin key for this application. Other providers have an equivalent API-key page in their dashboard. For another OpenAI-compatible provider, also set `TF_VAR_provider_api_base` to its documented API base URL.
 
-The first two commands generated values without displaying them. Print and save the gateway key in a password manager now; it is the value you enter in the website. The PostgreSQL password normally never needs to be used again.
+The generated values are not displayed. Save the administrator password in a password manager; you will use it to sign in to the website. The PostgreSQL password normally never needs to be used again.
 
 ```bash
-printf 'Gateway key: %s\n' "$TF_VAR_gateway_api_key"
+printf 'Administrator password: %s\n' "$TF_VAR_gateway_api_key"
 ```
 
 Do not commit any of these values to a file in this repository.
@@ -93,13 +95,17 @@ terraform apply -var='enable_ollama=true'
 
 To switch back to hosted inference, apply with `-var='enable_ollama=false'` (the default) and set `TF_VAR_provider_api_key` again if it is not already set in the shell.
 
-The service is published by Docker Desktop on port `8080` by default. From a device on your Wi-Fi, open `http://YOUR_LAPTOP_LAN_IP:8080`. Enter the gateway key in the page, or call:
+The website uses `gemma3:270m` when Ollama is enabled and `gpt-4o-mini` with hosted inference. Set `-var='default_model=MODEL_NAME'` to choose another model. API clients may omit `model` to use the same default.
+
+The service is published by Docker Desktop on port `8080` by default. From a device on your Wi-Fi, open `http://YOUR_LAPTOP_LAN_IP:8080` and sign in with the administrator username and password. The administrator can create separate household accounts in the page. Chat API requests use the login session cookie.
 
 ```bash
-curl http://YOUR_LAPTOP_LAN_IP:8080/v1/chat/completions \
+curl -c cookies.txt -X POST http://YOUR_LAPTOP_LAN_IP:8080/auth/login \
   -H 'Content-Type: application/json' \
-  -H 'X-API-Key: YOUR_SAVED_GATEWAY_KEY' \
-  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}'
+  -d '{"username":"admin","password":"YOUR_ADMIN_PASSWORD"}'
+curl -b cookies.txt http://YOUR_LAPTOP_LAN_IP:8080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 ## Operations
@@ -111,7 +117,7 @@ kubectl --kubeconfig /workspace/.kubeconfig get pods -n ai-lan
 kubectl --kubeconfig /workspace/.kubeconfig logs deployment/gateway -n ai-lan
 ```
 
-Changing gateway source files then re-running `terraform apply` rebuilds and redeploys the image. To rotate a secret, replace its environment variable, then run `terraform apply -replace=terraform_data.application`. To destroy the cluster, run `./scripts/teardown.sh`.
+PostgreSQL uses a Kubernetes PVC while the cluster is running. A PVC is cluster-local in this k3d setup, so `./scripts/teardown.sh` first creates a timestamped PostgreSQL dump in the project `backups/` folder, then destroys the cluster. The dump is stored on the Windows host through the project mount and is ignored by Git. If backup creation fails, teardown stops before destroying the cluster. On the next `terraform apply`, the newest dump in `backups/` is restored into the new PVC before the gateway starts. Keep a copy of important dumps somewhere outside this project too. To start with a fresh database, move the dumps out of `backups/` before deploying.
 
 ## How the container works
 

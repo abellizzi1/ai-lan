@@ -11,14 +11,26 @@ variable "http_port" {
 }
 
 variable "gateway_api_key" {
-  description = "Initial client API key for the gateway. Supply through TF_VAR_gateway_api_key."
+  description = "Bootstrap administrator password for website login. Supply through TF_VAR_gateway_api_key."
   type        = string
   sensitive   = true
-  default     = "blah"
+  default     = "admin"
+}
+
+variable "gateway_admin_username" {
+  description = "Username for the initial administrator account."
+  type        = string
+  default     = "admin"
 }
 
 variable "provider_api_base" {
   description = "OpenAI-compatible upstream API base URL. Defaults to OpenAI, or the in-cluster Ollama service when enable_ollama is true."
+  type        = string
+  default     = null
+}
+
+variable "default_model" {
+  description = "Model selected by the website and used when an API request omits model. Defaults to gemma3:270m with Ollama and gpt-4o-mini with hosted inference."
   type        = string
   default     = null
 }
@@ -29,10 +41,6 @@ variable "provider_api_key" {
   default     = null
   sensitive   = true
 
-  validation {
-    condition     = var.enable_ollama || (var.provider_api_key != null && length(trimspace(var.provider_api_key)) > 0)
-    error_message = "Set provider_api_key for hosted inference, or set enable_ollama=true to use the local Ollama provider."
-  }
 }
 
 variable "enable_ollama" {
@@ -45,5 +53,5 @@ variable "postgres_password" {
   description = "Password for the gateway PostgreSQL role. Supply through TF_VAR_postgres_password."
   type        = string
   sensitive   = true
-  default     = "blah"
+  default     = "admin"
 }
