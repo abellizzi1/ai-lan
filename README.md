@@ -1,12 +1,5 @@
 # LAN AI Gateway
 
-TODOs:
-- add tracking of tokens used per user
-- limit tokens per user
-- ability to stop a user from being able to send requests
-- admin is the only person who can create an account - leave this?
-- dns setup in personal router
-
 Self-hosted LAN AI gateway for OpenAI-compatible APIs, with household accounts, request limits, and usage logging. Terraform deploys the web UI, gateway, PostgreSQL, and ingress to a local k3d cluster. Inference uses OpenAI by default or optional in-cluster Ollama.
 
 The only required host application is Docker running Linux containers. Terraform, k3d, kubectl, Docker CLI, and every deployment script run inside the provided Ubuntu image; there are no PowerShell scripts or host-language dependencies.
@@ -97,6 +90,8 @@ The website uses `gemma3:270m` when Ollama is enabled and `gpt-4o-mini` with hos
 
 The service is published by Docker Desktop on port `8080` by default. From a device on your Wi-Fi, open `http://YOUR_LAPTOP_LAN_IP:8080` and sign in with the administrator username and password. The administrator can create separate household accounts in the page. Chat API requests use the login session cookie.
 
+Administrators can open **Admin dashboard** from the chat sidebar (or visit `/admin.html`) to view each account's details, daily request counts, provider-reported token usage, request history, and saved conversations with their messages. The dashboard API checks administrator access on every request. Password hashes and session tokens are not shown. Direct `/v1/chat/completions` request and response bodies are not stored, so the dashboard shows their logged metadata and usage only.
+
 Conversations are stored in PostgreSQL under each account, so they appear on every device signed in as that user. The gateway sends earlier messages with each reply for context. Chats previously saved in a browser are imported when that user signs in again.
 
 ```bash
@@ -115,6 +110,24 @@ All commands below run from the same Ubuntu shell, where the `TF_VAR_*` values a
 ```bash
 kubectl --kubeconfig /workspace/.kubeconfig get pods -n ai-lan
 kubectl --kubeconfig /workspace/.kubeconfig logs deployment/gateway -n ai-lan
+```
+
+The gateway records input, output, and total tokens for each non-streaming chat response, whether inference uses a hosted OpenAI-compatible endpoint or local Ollama. Counts come from the provider's `usage` response; a missing count is stored as `NULL`, including for older log entries and requests that never received a usable response. The existing daily limit counts requests, not tokens. To see measured usage by user, UTC day, and model, run this from the Ubuntu shell:
+
+```bash
+kubectl --kubeconfig /workspace/.kubeconfig exec -n ai-lan deployment/postgres -- \
+  psql -U ai_gateway -d ai_gateway -c "
+    SELECT u.username,
+           (l.created_at AT TIME ZONE 'UTC')::date AS usage_day_utc,
+           l.model,
+           count(*) FILTER (WHERE l.total_tokens IS NOT NULL) AS measured_requests,
+           coalesce(sum(l.prompt_tokens), 0) AS prompt_tokens,
+           coalesce(sum(l.completion_tokens), 0) AS completion_tokens,
+           coalesce(sum(l.total_tokens), 0) AS total_tokens
+    FROM user_request_log AS l
+    JOIN app_users AS u ON u.id = l.user_id
+    GROUP BY u.username, usage_day_utc, l.model
+    ORDER BY usage_day_utc DESC, u.username, l.model;"
 ```
 
 PostgreSQL uses a Kubernetes PVC while the cluster is running. A PVC is cluster-local in this k3d setup, so `./scripts/teardown.sh` first creates a timestamped PostgreSQL dump in the project `backups/` folder, then destroys the cluster. The dump is stored on the Windows host through the project mount and is ignored by Git. If backup creation fails, teardown stops before destroying the cluster. On the next `terraform apply`, the newest dump in `backups/` is restored into the new PVC before the gateway starts. Keep a copy of important dumps somewhere outside this project too. To start with a fresh database, move the dumps out of `backups/` before deploying.

@@ -44,8 +44,17 @@ async def lifespan(app: FastAPI):
               user_id BIGINT NOT NULL,
               model TEXT,
               status_code INTEGER NOT NULL,
-              client_ip TEXT
+              client_ip TEXT,
+              prompt_tokens BIGINT,
+              completion_tokens BIGINT,
+              total_tokens BIGINT
             );
+            ALTER TABLE user_request_log
+              ADD COLUMN IF NOT EXISTS prompt_tokens BIGINT,
+              ADD COLUMN IF NOT EXISTS completion_tokens BIGINT,
+              ADD COLUMN IF NOT EXISTS total_tokens BIGINT;
+            CREATE INDEX IF NOT EXISTS user_request_log_user_id_id_idx
+              ON user_request_log (user_id, id DESC);
             CREATE TABLE IF NOT EXISTS app_users (
               id BIGSERIAL PRIMARY KEY,
               username TEXT NOT NULL UNIQUE,
@@ -69,6 +78,8 @@ async def lifespan(app: FastAPI):
               updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
               UNIQUE (user_id, source_id)
             );
+            CREATE INDEX IF NOT EXISTS conversations_user_id_updated_idx
+              ON conversations (user_id, updated_at DESC, id DESC);
             CREATE TABLE IF NOT EXISTS conversation_messages (
               id BIGSERIAL PRIMARY KEY,
               conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -91,6 +102,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Private AI Gateway", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def admin_no_store(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/auth/admin/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -110,6 +129,13 @@ async def current_user(request: Request):
     return user
 
 
+async def require_admin(request: Request):
+    user = await current_user(request)
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return user
+
+
 async def charge(user_id: int):
     async with app.state.db.acquire() as conn:
         used = await conn.fetchval("""
@@ -125,11 +151,27 @@ async def charge(user_id: int):
     return user_id
 
 
-async def log_request(user_id: int, model: str | None, status: int, client_ip: str | None):
+def token_counts(result: object) -> tuple[int | None, int | None, int | None]:
+    usage = result.get("usage") if isinstance(result, dict) else None
+    if not isinstance(usage, dict):
+        return None, None, None
+
+    def count(key: str) -> int | None:
+        value = usage.get(key)
+        return value if type(value) is int and 0 <= value <= 9223372036854775807 else None
+
+    return count("prompt_tokens"), count("completion_tokens"), count("total_tokens")
+
+
+async def log_request(user_id: int, model: str | None, status: int,
+                      client_ip: str | None, result: object = None):
+    prompt_tokens, completion_tokens, total_tokens = token_counts(result)
     async with app.state.db.acquire() as conn:
         await conn.execute(
-            "INSERT INTO user_request_log (user_id, model, status_code, client_ip) VALUES ($1, $2, $3, $4)",
-            user_id, model, status, client_ip,
+            """INSERT INTO user_request_log
+               (user_id, model, status_code, client_ip, prompt_tokens, completion_tokens, total_tokens)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+            user_id, model, status, client_ip, prompt_tokens, completion_tokens, total_tokens,
         )
 
 
@@ -176,9 +218,7 @@ async def whoami(request: Request):
 
 @app.post("/auth/users", status_code=201)
 async def create_user(request: Request):
-    actor = await current_user(request)
-    if not actor["is_admin"]:
-        raise HTTPException(status_code=403, detail="Administrator access required")
+    await require_admin(request)
     data = await request.json()
     username = str(data.get("username", "")).strip()
     password = str(data.get("password", ""))
@@ -190,6 +230,133 @@ async def create_user(request: Request):
     except asyncpg.UniqueViolationError:
         raise HTTPException(status_code=409, detail="That username already exists")
     return {"username": username}
+
+
+def checked_offset(offset: int) -> int:
+    if offset < 0 or offset > 1_000_000:
+        raise HTTPException(status_code=400, detail="Invalid page offset")
+    return offset
+
+
+async def require_existing_user(conn, user_id: int):
+    if await conn.fetchval("SELECT 1 FROM app_users WHERE id=$1", user_id) is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+
+@app.get("/auth/admin/users")
+async def admin_users(request: Request):
+    await require_admin(request)
+    async with app.state.db.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT u.id, u.username, u.is_admin, u.disabled, u.created_at,
+              COALESCE((SELECT SUM(requests) FROM user_request_usage q
+                        WHERE q.user_id=u.id), 0)::bigint AS charged_requests,
+              (SELECT COUNT(*) FROM user_request_log l
+               WHERE l.user_id=u.id) AS logged_requests,
+              (SELECT COUNT(*) FROM user_request_log l
+               WHERE l.user_id=u.id AND l.total_tokens IS NOT NULL) AS measured_requests,
+              COALESCE((SELECT SUM(prompt_tokens) FROM user_request_log l
+                        WHERE l.user_id=u.id), 0)::bigint AS prompt_tokens,
+              COALESCE((SELECT SUM(completion_tokens) FROM user_request_log l
+                        WHERE l.user_id=u.id), 0)::bigint AS completion_tokens,
+              COALESCE((SELECT SUM(total_tokens) FROM user_request_log l
+                        WHERE l.user_id=u.id), 0)::bigint AS total_tokens,
+              (SELECT COUNT(*) FROM conversations c
+               WHERE c.user_id=u.id) AS conversation_count,
+              (SELECT COUNT(*) FROM conversation_messages m
+               JOIN conversations c ON c.id=m.conversation_id
+               WHERE c.user_id=u.id) AS message_count,
+              (SELECT COUNT(*) FROM user_sessions s
+               WHERE s.user_id=u.id AND s.expires_at > now()) AS active_sessions
+            FROM app_users u ORDER BY lower(u.username), u.id
+        """)
+    return [dict(row) for row in rows]
+
+
+@app.get("/auth/admin/users/{user_id}/usage")
+async def admin_user_usage(user_id: int, request: Request):
+    await require_admin(request)
+    async with app.state.db.acquire() as conn:
+        await require_existing_user(conn, user_id)
+        request_days = await conn.fetch("""
+            SELECT usage_date, requests FROM user_request_usage
+            WHERE user_id=$1 ORDER BY usage_date DESC
+        """, user_id)
+        token_days = await conn.fetch("""
+            SELECT (created_at AT TIME ZONE 'UTC')::date AS usage_date,
+              COUNT(*) AS logged_requests,
+              COUNT(*) FILTER (WHERE total_tokens IS NOT NULL) AS measured_requests,
+              COALESCE(SUM(prompt_tokens), 0)::bigint AS prompt_tokens,
+              COALESCE(SUM(completion_tokens), 0)::bigint AS completion_tokens,
+              COALESCE(SUM(total_tokens), 0)::bigint AS total_tokens
+            FROM user_request_log WHERE user_id=$1
+            GROUP BY 1 ORDER BY 1 DESC
+        """, user_id)
+        models = await conn.fetch("""
+            SELECT model, COUNT(*) AS logged_requests,
+              COUNT(*) FILTER (WHERE total_tokens IS NOT NULL) AS measured_requests,
+              COALESCE(SUM(prompt_tokens), 0)::bigint AS prompt_tokens,
+              COALESCE(SUM(completion_tokens), 0)::bigint AS completion_tokens,
+              COALESCE(SUM(total_tokens), 0)::bigint AS total_tokens
+            FROM user_request_log WHERE user_id=$1
+            GROUP BY model ORDER BY total_tokens DESC, model
+        """, user_id)
+    return {"request_days": [dict(row) for row in request_days],
+            "token_days": [dict(row) for row in token_days],
+            "models": [dict(row) for row in models]}
+
+
+@app.get("/auth/admin/users/{user_id}/requests")
+async def admin_user_requests(user_id: int, request: Request, offset: int = 0):
+    await require_admin(request)
+    offset = checked_offset(offset)
+    async with app.state.db.acquire() as conn:
+        await require_existing_user(conn, user_id)
+        rows = await conn.fetch("""
+            SELECT id, created_at, model, status_code, client_ip,
+                   prompt_tokens, completion_tokens, total_tokens
+            FROM user_request_log WHERE user_id=$1
+            ORDER BY id DESC OFFSET $2 LIMIT 51
+        """, user_id, offset)
+    return {"items": [dict(row) for row in rows[:50]],
+            "next_offset": offset + 50 if len(rows) > 50 else None}
+
+
+@app.get("/auth/admin/users/{user_id}/conversations")
+async def admin_user_conversations(user_id: int, request: Request, offset: int = 0):
+    await require_admin(request)
+    offset = checked_offset(offset)
+    async with app.state.db.acquire() as conn:
+        await require_existing_user(conn, user_id)
+        rows = await conn.fetch("""
+            SELECT c.id, c.title, c.source_id, c.created_at, c.updated_at,
+                   (SELECT COUNT(*) FROM conversation_messages m
+                    WHERE m.conversation_id=c.id) AS message_count
+            FROM conversations c WHERE c.user_id=$1
+            ORDER BY c.updated_at DESC, c.id DESC OFFSET $2 LIMIT 51
+        """, user_id, offset)
+    return {"items": [dict(row) for row in rows[:50]],
+            "next_offset": offset + 50 if len(rows) > 50 else None}
+
+
+@app.get("/auth/admin/conversations/{chat_id}")
+async def admin_conversation(chat_id: str, request: Request):
+    await require_admin(request)
+    parsed_id = parse_chat_id(chat_id)
+    async with app.state.db.acquire() as conn:
+        chat = await conn.fetchrow("""
+            SELECT c.id, c.user_id, u.username, c.title, c.source_id,
+                   c.created_at, c.updated_at
+            FROM conversations c JOIN app_users u ON u.id=c.user_id
+            WHERE c.id=$1
+        """, parsed_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        messages = await conn.fetch("""
+            SELECT id, role, content, created_at FROM conversation_messages
+            WHERE conversation_id=$1 ORDER BY id
+        """, parsed_id)
+    return {"conversation": dict(chat), "messages": [dict(row) for row in messages]}
 
 
 def parse_chat_id(value: str) -> UUID:
@@ -322,11 +489,13 @@ async def send_chat_message(chat_id: str, request: Request):
     except httpx.HTTPError:
         await log_request(user["id"], DEFAULT_MODEL, 502, request.client.host if request.client else None)
         raise HTTPException(status_code=502, detail="Inference provider could not be reached")
-    await log_request(user["id"], DEFAULT_MODEL, upstream.status_code, request.client.host if request.client else None)
     try:
         result = upstream.json()
     except ValueError:
+        await log_request(user["id"], DEFAULT_MODEL, 502, request.client.host if request.client else None)
         raise HTTPException(status_code=502, detail="Provider returned a non-JSON response")
+    await log_request(user["id"], DEFAULT_MODEL, upstream.status_code,
+                      request.client.host if request.client else None, result)
     if upstream.status_code >= 400:
         upstream_error = result.get("error") if isinstance(result, dict) else None
         detail = upstream_error.get("message") if isinstance(upstream_error, dict) else None
@@ -375,11 +544,18 @@ async def chat_completions(request: Request):
                 headers={"Authorization": f"Bearer {PROVIDER_API_KEY}"},
                 json=payload,
             )
-        content_type = upstream.headers.get("content-type", "application/json")
-        await log_request(user_id, model, upstream.status_code, request.client.host if request.client else None)
-        if "application/json" in content_type:
-            return JSONResponse(upstream.json(), status_code=upstream.status_code)
-        return JSONResponse({"detail": "Upstream returned a non-JSON response"}, status_code=502)
     except httpx.HTTPError:
         await log_request(user_id, model, 502, request.client.host if request.client else None)
         raise HTTPException(status_code=502, detail="Hosted inference provider could not be reached")
+    content_type = upstream.headers.get("content-type", "application/json")
+    if "application/json" not in content_type:
+        await log_request(user_id, model, 502, request.client.host if request.client else None)
+        return JSONResponse({"detail": "Upstream returned a non-JSON response"}, status_code=502)
+    try:
+        result = upstream.json()
+    except ValueError:
+        await log_request(user_id, model, 502, request.client.host if request.client else None)
+        return JSONResponse({"detail": "Upstream returned invalid JSON"}, status_code=502)
+    await log_request(user_id, model, upstream.status_code,
+                      request.client.host if request.client else None, result)
+    return JSONResponse(result, status_code=upstream.status_code)

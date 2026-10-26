@@ -41,6 +41,7 @@
     .sidebar-bottom { border-top: 1px solid #35504f; padding: 14px 8px 2px; }
     .side-action { display: block; width: 100%; padding: 9px 6px; background: none; border: 0; text-align: left; font-size: 13px; }
     .side-action:hover { color: #a7dfc4; }
+    a.side-action { color: inherit; text-decoration: none; }
     .user-name { font-size: 13px; font-weight: 700; margin: 4px 6px 0; }
     .storage-note { font-size: 11px; color: #9db6ae; margin: 4px 6px 10px; }
     .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -136,6 +137,7 @@
       <div class="side-label">Your conversations</div>
       <nav id="chat-list" class="chat-list" aria-label="Conversations"></nav>
       <div class="sidebar-bottom">
+        <a id="admin-dashboard-link" class="side-action" href="/admin.html" hidden>Admin dashboard</a>
         <button id="admin-button" class="side-action" hidden>Create household account</button>
         <div id="user-name" class="user-name"></div>
         <div class="storage-note">Chats sync across your devices</div>

@@ -142,6 +142,7 @@ async function showSession() {
   }
   $('#user-name').textContent = currentUser.username;
   $('#model-pill').textContent = currentUser.default_model || 'AI model';
+  $('#admin-dashboard-link').hidden = !currentUser.is_admin;
   $('#admin-button').hidden = !currentUser.is_admin;
   $('#login-screen').hidden = true;
   $('#app').hidden = false;
