@@ -12,5 +12,7 @@ configMapGenerator:
     files:
       - frontend/index.html
       - frontend/app.js
+      - frontend/admin.html
+      - frontend/admin.js
 generatorOptions:
   disableNameSuffixHash: true

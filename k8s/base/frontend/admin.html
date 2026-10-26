@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin dashboard · Hearth AI</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #203036; background: #f5f7f4; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    [hidden] { display: none !important; }
+    button { font: inherit; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
+    a { color: #0a7058; }
+    .topbar { display: flex; align-items: center; gap: 18px; padding: 16px clamp(18px, 4vw, 48px); background: #13282a; color: #eef7f2; }
+    .topbar a { color: #cce9d9; text-decoration: none; font-size: 13px; }
+    .topbar a:hover { text-decoration: underline; }
+    .topbar h1 { font-size: 18px; letter-spacing: -.03em; margin: 0 auto 0 0; }
+    .topbar button { border: 1px solid #58756d; border-radius: 9px; padding: 8px 11px; background: transparent; color: inherit; }
+    .topbar button:hover { background: #244341; }
+    main { max-width: 1500px; margin: 0 auto; padding: 30px clamp(16px, 3vw, 42px) 60px; }
+    h2, h3 { letter-spacing: -.035em; }
+    .intro { display: flex; justify-content: space-between; align-items: start; gap: 18px; margin-bottom: 22px; }
+    .intro h2 { font-size: clamp(24px, 3vw, 32px); margin: 0 0 5px; }
+    .intro p, .muted { color: #667771; }
+    .intro p { margin: 0; }
+    .subtle-button { border: 1px solid #ccd9d1; border-radius: 9px; padding: 9px 13px; background: #fff; color: #27554a; white-space: nowrap; }
+    .subtle-button:hover { background: #ebf5ee; }
+    .overview, .user-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .metric { padding: 17px 19px; background: white; border: 1px solid #dce6de; border-radius: 15px; }
+    .metric strong { display: block; margin-top: 7px; font-size: 27px; letter-spacing: -.05em; }
+    .metric span { color: #687a73; font-size: 12px; font-weight: 650; }
+    .layout { display: grid; grid-template-columns: minmax(245px, 295px) minmax(0, 1fr); gap: 18px; align-items: start; margin-top: 20px; }
+    .panel { background: white; border: 1px solid #dce6de; border-radius: 17px; box-shadow: 0 5px 24px #21483508; }
+    .people { position: sticky; top: 18px; max-height: calc(100vh - 36px); overflow: auto; }
+    .panel-head { padding: 19px 21px; border-bottom: 1px solid #e5ece6; }
+    .panel-head h3 { margin: 0; font-size: 16px; }
+    .panel-head p { margin: 5px 0 0; color: #75847f; font-size: 12px; }
+    .user-list { padding: 8px; }
+    .user-button { display: block; width: 100%; padding: 12px 13px; border: 0; border-radius: 10px; background: transparent; color: inherit; text-align: left; }
+    .user-button:hover, .user-button.active { background: #e9f5ed; }
+    .user-button strong, .user-button small { display: block; }
+    .user-button strong { font-size: 14px; }
+    .user-button small { color: #6b7e75; margin-top: 3px; }
+    .detail { min-width: 0; padding: 22px; }
+    .empty { padding: 58px 20px; text-align: center; color: #70817a; }
+    .detail-title { display: flex; align-items: start; justify-content: space-between; gap: 15px; }
+    .detail-title h2 { margin: 0 0 4px; font-size: 25px; }
+    .detail-title p { margin: 0; font-size: 13px; color: #65766e; line-height: 1.5; }
+    .badge { display: inline-block; padding: 5px 9px; border-radius: 100px; background: #e7f3ed; color: #28715a; font-size: 11px; font-weight: 700; }
+    .badge.disabled { color: #9d5531; background: #fff1e8; }
+    .user-metrics { margin-top: 20px; }
+    .user-metrics .metric { background: #f8faf7; }
+    .user-metrics .metric strong { font-size: 22px; }
+    section.data-section { margin-top: 28px; }
+    .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .section-heading h3 { margin: 0; font-size: 17px; }
+    .section-heading p { margin: 0; font-size: 12px; color: #75847f; }
+    .table-wrap { overflow: auto; max-height: 370px; border: 1px solid #e3eae4; border-radius: 11px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 10px 11px; text-align: left; white-space: nowrap; border-bottom: 1px solid #edf1ed; }
+    th { position: sticky; top: 0; background: #f4f8f5; color: #566d62; font-weight: 700; }
+    tr:last-child td { border-bottom: 0; }
+    .number { text-align: right; font-variant-numeric: tabular-nums; }
+    .empty-row { color: #788880; text-align: center; padding: 20px; }
+    .two-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .list { border: 1px solid #e3eae4; border-radius: 11px; overflow: auto; max-height: 340px; }
+    .conversation-button { width: 100%; border: 0; border-bottom: 1px solid #edf1ed; padding: 12px; background: white; text-align: left; color: inherit; }
+    .conversation-button:hover, .conversation-button.active { background: #eef7f0; }
+    .conversation-button strong, .conversation-button small { display: block; }
+    .conversation-button strong { overflow-wrap: anywhere; }
+    .conversation-button small { margin-top: 4px; color: #74847c; }
+    .more { display: block; margin: 12px 0 0; }
+    .conversation-view { margin-top: 14px; padding: 17px; border: 1px solid #dce6de; border-radius: 12px; background: #fbfcfa; }
+    .conversation-view h4 { margin: 0 0 5px; font-size: 16px; overflow-wrap: anywhere; }
+    .conversation-meta { font-size: 12px; color: #728179; line-height: 1.6; overflow-wrap: anywhere; }
+    .messages { max-height: 520px; overflow: auto; margin-top: 14px; }
+    .message { padding: 12px 0; border-top: 1px solid #e7ede7; }
+    .message-head { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: #66796e; }
+    .message-content { margin-top: 7px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; font-size: 13px; }
+    .status { min-height: 20px; margin: 12px 0; color: #a83e3e; font-size: 13px; }
+    @media (max-width: 1000px) { .overview, .user-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .two-column { grid-template-columns: 1fr; } }
+    @media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .people { position: static; max-height: 260px; } .detail { padding: 16px; } .topbar { flex-wrap: wrap; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a href="/">&larr; Back to chat</a>
+    <h1>Hearth AI · Admin</h1>
+    <span id="admin-name"></span>
+    <button id="sign-out" type="button">Sign out</button>
+  </header>
+  <main>
+    <div class="intro">
+      <div><h2>Household activity</h2><p>Accounts, saved chats, request counts, and provider-reported tokens. Token totals exclude requests without reported usage.</p></div>
+      <button id="refresh" class="subtle-button" type="button">Refresh</button>
+    </div>
+    <div id="page-status" class="status" role="status"></div>
+    <div id="admin-content" hidden>
+      <section id="overview" class="overview" aria-label="All users summary"></section>
+      <div class="layout">
+        <aside class="people panel"><div class="panel-head"><h3>Accounts</h3><p>Select a user to inspect their stored data.</p></div><div id="user-list" class="user-list"></div></aside>
+        <div class="detail panel">
+          <div id="detail-empty" class="empty">Select an account to view its data.</div>
+          <div id="detail-content" hidden>
+            <div class="detail-title"><div><h2 id="detail-name"></h2><p id="detail-meta"></p></div><span id="detail-badge" class="badge"></span></div>
+            <section id="user-metrics" class="user-metrics" aria-label="Selected user summary"></section>
+            <div id="detail-status" class="status" role="status"></div>
+            <section class="data-section">
+              <div class="section-heading"><h3>Usage by day</h3><p>Request quota day and token log day are shown separately.</p></div>
+              <div class="two-column">
+                <div><p class="muted">Daily request quota</p><div class="table-wrap"><table><thead><tr><th>Day</th><th class="number">Charged requests</th></tr></thead><tbody id="request-days"></tbody></table></div></div>
+                <div><p class="muted">Provider token usage · UTC</p><div class="table-wrap"><table><thead><tr><th>Day</th><th class="number">Measured</th><th class="number">Input</th><th class="number">Output</th><th class="number">Total</th></tr></thead><tbody id="token-days"></tbody></table></div></div>
+              </div>
+              <p class="muted">Usage by model</p>
+              <div class="table-wrap"><table><thead><tr><th>Model</th><th class="number">Measured</th><th class="number">Input</th><th class="number">Output</th><th class="number">Total</th></tr></thead><tbody id="model-usage"></tbody></table></div>
+            </section>
+            <section class="data-section">
+              <div class="section-heading"><h3>Saved conversations</h3><p>Open a conversation to read its messages.</p></div>
+              <div id="conversation-list" class="list"></div>
+              <button id="more-conversations" class="subtle-button more" type="button" hidden>Load more conversations</button>
+              <div id="conversation-view" class="conversation-view" hidden><h4 id="conversation-title"></h4><div id="conversation-meta" class="conversation-meta"></div><div id="message-list" class="messages"></div></div>
+            </section>
+            <section class="data-section">
+              <div class="section-heading"><h3>Request history</h3><p>Unreported token counts appear as —.</p></div>
+              <div class="table-wrap"><table><thead><tr><th>Time</th><th>Model</th><th>Status</th><th>Client IP</th><th class="number">Input</th><th class="number">Output</th><th class="number">Total</th></tr></thead><tbody id="request-history"></tbody></table></div>
+              <button id="more-requests" class="subtle-button more" type="button" hidden>Load more requests</button>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script src="/admin.js" defer></script>
+</body>
+</html>
