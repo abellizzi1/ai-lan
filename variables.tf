@@ -14,7 +14,6 @@ variable "gateway_api_key" {
   description = "Bootstrap administrator password for website login. Supply through TF_VAR_gateway_api_key."
   type        = string
   sensitive   = true
-  default     = "admin"
 }
 
 variable "gateway_admin_username" {
@@ -40,7 +39,6 @@ variable "provider_api_key" {
   type        = string
   default     = null
   sensitive   = true
-
 }
 
 variable "enable_ollama" {
@@ -53,5 +51,4 @@ variable "postgres_password" {
   description = "Password for the gateway PostgreSQL role. Supply through TF_VAR_postgres_password."
   type        = string
   sensitive   = true
-  default     = "admin"
 }

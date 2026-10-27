@@ -1,130 +1,74 @@
 # LAN AI Gateway
 
-Self-hosted LAN AI gateway for OpenAI-compatible APIs, with accounts, request limits, and usage logging. Terraform deploys the web UI, gateway, PostgreSQL, and ingress to a local k3d cluster. Inference uses OpenAI by default or optional in-cluster Ollama.
+A self-hosted AI chat site and OpenAI-compatible API for a local network. Terraform deploys the frontend, gateway, PostgreSQL, and ingress to a k3d cluster. Inference uses OpenAI by default or an optional in-cluster Ollama server.
 
-The only required host application is Docker running Linux containers. Terraform, k3d, kubectl, Docker CLI, and every deployment script run inside the Ubuntu image.
+This is a personal-use stack. It has local accounts and request limits, but serves over HTTP without TLS. Use it only on a trusted network until HTTPS is configured.
 
-This is a starter stack for personal use, not a production security boundary. It provides local username/password accounts, but currently serves over HTTP without TLS; use it only on a trusted home network until HTTPS is configured.
+## Setup
 
-## Deployment flow
-
-There are two layers of containers:
-
-1. The `infra` Ubuntu container is the command runner. It contains Terraform, k3d, kubectl, and Docker CLI.
-2. When Terraform runs, it asks the Docker daemon to create the K3s node containers, build the FastAPI image, and deploy the Kubernetes resources into that K3s cluster.
-
-The scripts Terraform calls are all in `scripts/` and run in this order:
-
-1. `create-cluster.sh` creates (or reuses) the `ai-lan` K3s cluster and writes `.kubeconfig`.
-2. `build-image.sh` builds `services/gateway` and imports that image into K3s. K3s has its own image store, distinct from Docker's local image list.
-3. `deploy.sh` creates the Kubernetes secret, applies the manifests, waits for PostgreSQL, then waits for the gateway.
-
-If the local K3s containers are removed or reset, `deploy.sh` detects the missing server container, recreates the local cluster, and re-imports the gateway image before applying the application.
-
-Start by building the runner:
+A running Docker daemon and the `docker compose` CLI are required on the host. Terraform, k3d, kubectl, and the deployment scripts run inside the `infra` container. From the repository root:
 
 ```bash
 docker compose build infra
 docker compose run --rm infra bash
 ```
 
-## Values you need
-
-Set the gateway and database values inside the Ubuntu shell. For hosted inference, also set the provider key; it can be skipped when using Ollama. Terraform automatically maps a `TF_VAR_name` environment variable to its matching Terraform input variable.
+In that shell, choose and save an admin password and a PostgreSQL password, each at least 12 characters. Re-enter them if you open a new `infra` shell.
 
 ```bash
-# Initial admin password (at least 12 characters).
-export TF_VAR_gateway_api_key="$(openssl rand -hex 24)"
+read -rsp 'Admin password: ' TF_VAR_gateway_api_key; echo
+export TF_VAR_gateway_api_key
 export TF_VAR_gateway_admin_username='admin'
-
-# Password that is used only between the gateway and internal PostgreSQL.
-export TF_VAR_postgres_password="$(openssl rand -hex 24)"
-
-# For hosted inference, copy this from your provider's API-key page.
-# The default provider is OpenAI. Skip this when enabling local Ollama.
-export TF_VAR_provider_api_key='paste-provider-key-here'
+read -rsp 'PostgreSQL password: ' TF_VAR_postgres_password; echo
+export TF_VAR_postgres_password
 ```
 
-For the default OpenAI provider, create a normal project API key in the [OpenAI Platform API keys page](https://platform.openai.com/api-keys), then paste that value as `TF_VAR_provider_api_key`. Do not use an organization Admin key for this application. Other providers have an equivalent API-key page in their dashboard. For another OpenAI-compatible provider, also set `TF_VAR_provider_api_base` to its documented API base URL.
+For hosted inference, also set a provider API key. The default endpoint is OpenAI's `https://api.openai.com/v1`; use a [project API key](https://platform.openai.com/api-keys), not an organization Admin key.
 
-The generated values are not displayed. The admin password will be needed for the initial sign-in to the website (since only the admin can create accounts). The PostgreSQL password normally never needs to be used again.
+```bash
+read -rsp 'Provider API key: ' TF_VAR_provider_api_key; echo
+export TF_VAR_provider_api_key
+```
 
-Do not commit any of these values to a file in this repository.
+For another OpenAI-compatible provider, set `TF_VAR_provider_api_base` to its API base URL. For local Ollama, skip the provider key and use the Ollama apply command below. Do not commit passwords or API keys to this repository.
 
-## Deploy
-
-Still inside the Ubuntu shell, initialize Terraform and apply the configuration:
+Initialize and deploy from the same `infra` shell:
 
 ```bash
 terraform init
 terraform apply
 ```
 
-On completion it prints the website and API URLs..
+For local inference, run `terraform apply -var='enable_ollama=true'` instead. The default Ollama model is `gemma3:270m`; hosted inference defaults to `gpt-4o-mini`. Set `TF_VAR_default_model` to choose another model. To switch back to a hosted provider, set its API key and run `terraform apply -var='enable_ollama=false'`.
 
-The default provider endpoint is OpenAI's `https://api.openai.com/v1`. To use another OpenAI-compatible hosted provider, set its documented API base URL:
+## Use
 
-```bash
-terraform apply \
-  -var='provider_api_base=https://provider.example/v1'
-```
+Open `http://YOUR_HOST_LAN_IP:8080` from a device on the local network and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard**. Conversations are saved in PostgreSQL per account. API requests to `/v1/chat/completions` use the login session cookie.
 
-To run inference locally with Ollama instead, enable it during apply. The first deployment downloads the configured model (about 292 MB); no hosted provider key is needed:
+For an API request, sign in first and pass the session cookie:
 
 ```bash
-terraform apply -var='enable_ollama=true'
-```
-
-The Ollama image stays cached. Each new k3d cluster imports that local copy, so teardown and re-apply do not download the image again. The model is stored in a cluster PVC and is downloaded again after teardown. To update the cached container image, run `docker pull ollama/ollama:latest` before applying.
-
-To switch back to hosted inference, apply with `-var='enable_ollama=false'` (the default) and set `TF_VAR_provider_api_key` again if it is not already set in the shell.
-
-The website uses `gemma3:270m` when Ollama is enabled and `gpt-4o-mini` with hosted inference. Set `-var='default_model=MODEL_NAME'` to choose another model. API clients may omit `model` to use the same default.
-
-The service is published by Docker Desktop on port `8080` by default. From a device on your Wi-Fi, open `http://YOUR_LAPTOP_LAN_IP:8080` and sign in with the administrator username and password. The administrator can create separate household accounts in the page. Chat API requests use the login session cookie.
-
-Administrators can open **Admin dashboard** from the chat sidebar (or visit `/admin.html`) to view each account's details, daily request counts, provider-reported token usage, request history, and saved conversations with their messages. The dashboard API checks administrator access on every request. Password hashes and session tokens are not shown. Direct `/v1/chat/completions` request and response bodies are not stored, so the dashboard shows their logged metadata and usage only.
-
-Conversations are stored in PostgreSQL under each account, so they appear on every device signed in as that user. The gateway sends earlier messages with each reply for context. Chats previously saved in a browser are imported when that user signs in again.
-
-```bash
-curl -c cookies.txt -X POST http://YOUR_LAPTOP_LAN_IP:8080/auth/login \
+curl -c /tmp/ai-gateway-cookies.txt -X POST http://YOUR_HOST_LAN_IP:8080/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"YOUR_ADMIN_PASSWORD"}'
-curl -b cookies.txt http://YOUR_LAPTOP_LAN_IP:8080/v1/chat/completions \
+curl -b /tmp/ai-gateway-cookies.txt http://YOUR_HOST_LAN_IP:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-## Operations
-
-All commands below run from the same Ubuntu shell, where the `TF_VAR_*` values are still set:
+To check the deployment from the `infra` shell:
 
 ```bash
 kubectl --kubeconfig /workspace/.kubeconfig get pods -n ai-lan
 kubectl --kubeconfig /workspace/.kubeconfig logs deployment/gateway -n ai-lan
 ```
 
-The gateway records input, output, and total tokens for each non-streaming chat response, whether inference uses a hosted OpenAI-compatible endpoint or local Ollama. Counts come from the provider's `usage` response; a missing count is stored as `NULL`, including for older log entries and requests that never received a usable response. The existing daily limit counts requests, not tokens. To see measured usage by user, UTC day, and model, run this from the Ubuntu shell:
+## Backups and teardown
 
-```bash
-kubectl --kubeconfig /workspace/.kubeconfig exec -n ai-lan deployment/postgres -- \
-  psql -U ai_gateway -d ai_gateway -c "
-    SELECT u.username,
-           (l.created_at AT TIME ZONE 'UTC')::date AS usage_day_utc,
-           l.model,
-           count(*) FILTER (WHERE l.total_tokens IS NOT NULL) AS measured_requests,
-           coalesce(sum(l.prompt_tokens), 0) AS prompt_tokens,
-           coalesce(sum(l.completion_tokens), 0) AS completion_tokens,
-           coalesce(sum(l.total_tokens), 0) AS total_tokens
-    FROM user_request_log AS l
-    JOIN app_users AS u ON u.id = l.user_id
-    GROUP BY u.username, usage_day_utc, l.model
-    ORDER BY usage_day_utc DESC, u.username, l.model;"
-```
+Run `bash scripts/teardown.sh` from the `infra` shell to back up PostgreSQL and destroy the cluster. The script stops if the backup fails. Dumps are written to the host's `backups/` directory, which Git ignores. Keep a copy elsewhere if the data matters.
 
-PostgreSQL uses a Kubernetes PVC while the cluster is running. A PVC is cluster-local in this k3d setup, so `./scripts/teardown.sh` first creates a timestamped PostgreSQL dump in the project `backups/` folder, then destroys the cluster. The dump is stored on the Windows host through the project mount and is ignored by Git. If backup creation fails, teardown stops before destroying the cluster. On the next `terraform apply`, the newest dump in `backups/` is restored into the new PVC before the gateway starts. Keep a copy of important dumps somewhere outside this project too. To start with a fresh database, move the dumps out of `backups/` before deploying.
+On the next `terraform apply`, the newest dump is restored into a fresh database. Move dumps out of `backups/` before deploying if you want an empty database. The Ollama container image is cached by Docker, but its model is stored in a cluster volume and must be downloaded again after teardown.
 
-## How the container works
+## How deployment works
 
-`compose.yaml` mounts the Docker daemon socket into the Ubuntu `infra` container. This lets its Docker CLI create the K3s node containers and build the gateway image without installing Terraform or Kubernetes tools on the host. The runner joins k3d's private Docker network to reach the K3s API; only the web/API ingress is published on host port `8080`.
+The `infra` container mounts the host Docker socket. Terraform calls the scripts in `scripts/` to create the k3d cluster, build and import the gateway image, and apply the Kubernetes manifests. The runner joins the cluster's Docker network to reach the Kubernetes API. The web/API ingress is published on host port `8080` by default.

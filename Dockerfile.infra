@@ -5,7 +5,7 @@ ARG KUBECTL_VERSION=v1.31.4
 ARG TERRAFORM_VERSION=1.10.5
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      ca-certificates curl unzip docker.io openssl \
+      ca-certificates curl unzip docker.io \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSLo /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
     && unzip /tmp/terraform.zip -d /usr/local/bin \
