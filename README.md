@@ -1,8 +1,8 @@
 # LAN AI Gateway
 
-Self-hosted LAN AI gateway for OpenAI-compatible APIs, with household accounts, request limits, and usage logging. Terraform deploys the web UI, gateway, PostgreSQL, and ingress to a local k3d cluster. Inference uses OpenAI by default or optional in-cluster Ollama.
+Self-hosted LAN AI gateway for OpenAI-compatible APIs, with accounts, request limits, and usage logging. Terraform deploys the web UI, gateway, PostgreSQL, and ingress to a local k3d cluster. Inference uses OpenAI by default or optional in-cluster Ollama.
 
-The only required host application is Docker running Linux containers. Terraform, k3d, kubectl, Docker CLI, and every deployment script run inside the provided Ubuntu image; there are no PowerShell scripts or host-language dependencies.
+The only required host application is Docker running Linux containers. Terraform, k3d, kubectl, Docker CLI, and every deployment script run inside the Ubuntu image.
 
 This is a starter stack for personal use, not a production security boundary. It provides local username/password accounts, but currently serves over HTTP without TLS; use it only on a trusted home network until HTTPS is configured.
 
@@ -19,28 +19,25 @@ The scripts Terraform calls are all in `scripts/` and run in this order:
 2. `build-image.sh` builds `services/gateway` and imports that image into K3s. K3s has its own image store, distinct from Docker's local image list.
 3. `deploy.sh` creates the Kubernetes secret, applies the manifests, waits for PostgreSQL, then waits for the gateway.
 
-If Docker Desktop removes or resets the local K3s containers, `deploy.sh` detects the missing server container, recreates the local cluster, and re-imports the gateway image before applying the application.
+If the local K3s containers are removed or reset, `deploy.sh` detects the missing server container, recreates the local cluster, and re-imports the gateway image before applying the application.
 
-Nothing needs to be installed outside Docker Desktop. Start by building the runner:
+Start by building the runner:
 
 ```bash
 docker compose build infra
 docker compose run --rm infra bash
 ```
 
-The second command opens a shell *inside Ubuntu*. Run every remaining command in that shell.
-
 ## Values you need
 
 Set the gateway and database values inside the Ubuntu shell. For hosted inference, also set the provider key; it can be skipped when using Ollama. Terraform automatically maps a `TF_VAR_name` environment variable to its matching Terraform input variable.
 
 ```bash
-# Initial administrator password (at least 12 characters). Keep it safe.
+# Initial admin password (at least 12 characters).
 export TF_VAR_gateway_api_key="$(openssl rand -hex 24)"
 export TF_VAR_gateway_admin_username='admin'
 
-# A password you create. It is used only between the gateway and internal PostgreSQL.
-# Hex avoids URL-escaping issues in the database connection string.
+# Password that is used only between the gateway and internal PostgreSQL.
 export TF_VAR_postgres_password="$(openssl rand -hex 24)"
 
 # For hosted inference, copy this from your provider's API-key page.
@@ -50,11 +47,7 @@ export TF_VAR_provider_api_key='paste-provider-key-here'
 
 For the default OpenAI provider, create a normal project API key in the [OpenAI Platform API keys page](https://platform.openai.com/api-keys), then paste that value as `TF_VAR_provider_api_key`. Do not use an organization Admin key for this application. Other providers have an equivalent API-key page in their dashboard. For another OpenAI-compatible provider, also set `TF_VAR_provider_api_base` to its documented API base URL.
 
-The generated values are not displayed. Save the administrator password in a password manager; you will use it to sign in to the website. The PostgreSQL password normally never needs to be used again.
-
-```bash
-printf 'Administrator password: %s\n' "$TF_VAR_gateway_api_key"
-```
+The generated values are not displayed. The admin password will be needed for the initial sign-in to the website (since only the admin can create accounts). The PostgreSQL password normally never needs to be used again.
 
 Do not commit any of these values to a file in this repository.
 
@@ -67,7 +60,7 @@ terraform init
 terraform apply
 ```
 
-Terraform will show its plan and ask for confirmation. On completion it prints the website and API URLs, using `YOUR_LAPTOP_LAN_IP` as a reminder to substitute the actual LAN address reported by your router.
+On completion it prints the website and API URLs..
 
 The default provider endpoint is OpenAI's `https://api.openai.com/v1`. To use another OpenAI-compatible hosted provider, set its documented API base URL:
 
@@ -82,7 +75,7 @@ To run inference locally with Ollama instead, enable it during apply. The first 
 terraform apply -var='enable_ollama=true'
 ```
 
-The Ollama container image stays cached in Docker on your Windows machine. Each new k3d cluster imports that local copy, so teardown and re-apply do not download the image again. The model is stored in a cluster PVC and is downloaded again after teardown. To update the cached container image, run `docker pull ollama/ollama:latest` before applying.
+The Ollama image stays cached. Each new k3d cluster imports that local copy, so teardown and re-apply do not download the image again. The model is stored in a cluster PVC and is downloaded again after teardown. To update the cached container image, run `docker pull ollama/ollama:latest` before applying.
 
 To switch back to hosted inference, apply with `-var='enable_ollama=false'` (the default) and set `TF_VAR_provider_api_key` again if it is not already set in the shell.
 
