@@ -221,9 +221,9 @@ async def create_user(request: Request):
     await require_admin(request)
     data = await request.json()
     username = str(data.get("username", "")).strip()
-    password = str(data.get("password", ""))
-    if not username or len(username) > 80 or len(password) < 12:
-        raise HTTPException(status_code=400, detail="Enter a username and a password of at least 12 characters")
+    password = data.get("password")
+    if not username or len(username) > 80 or not isinstance(password, str) or not password:
+        raise HTTPException(status_code=400, detail="Enter a username (up to 80 characters) and a password")
     try:
         async with app.state.db.acquire() as conn:
             await conn.execute("INSERT INTO app_users (username,password_hash) VALUES ($1,$2)", username, password_hasher.hash(password))

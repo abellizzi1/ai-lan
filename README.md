@@ -13,7 +13,7 @@ docker compose build infra
 docker compose run --rm infra bash
 ```
 
-In that shell, choose and save an admin password and a PostgreSQL password, each at least 12 characters. Re-enter them if you open a new `infra` shell.
+In that shell, choose and save an admin password and a PostgreSQL password. Re-enter them if you open a new `infra` shell.
 
 ```bash
 read -rsp 'Admin password: ' TF_VAR_gateway_api_key; echo
