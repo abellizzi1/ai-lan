@@ -1,9 +1,10 @@
 locals {
-  image_name  = "local/ai-gateway:dev"
+  image_name        = "local/ai-gateway:dev"
   provider_api_base = coalesce(var.provider_api_base, var.enable_ollama ? "http://ollama:11434/v1" : "https://api.openai.com/v1")
   provider_api_key  = var.provider_api_key == null ? (var.enable_ollama ? "ollama" : "") : var.provider_api_key
   default_model     = var.default_model == null ? (var.enable_ollama ? "gemma3:270m" : "gpt-4o-mini") : var.default_model
-  source_hash = sha256(join("", [for file in fileset(path.module, "services/gateway/**") : filesha256("${path.module}/${file}")]))
+  source_hash       = sha256(join("", [for file in fileset(path.module, "services/gateway/**") : filesha256("${path.module}/${file}")]))
+  manifest_hash     = sha256(join("", [for file in fileset(path.module, "k8s/base/**") : filesha256("${path.module}/${file}")]))
 }
 
 resource "terraform_data" "cluster" {
@@ -43,14 +44,7 @@ resource "terraform_data" "application" {
     local.provider_api_base,
     local.default_model,
     sha256(local.provider_api_key),
-    filesha256("${path.module}/k8s/base/kustomization.yaml"),
-    filesha256("${path.module}/k8s/base/gateway.yaml"),
-    filesha256("${path.module}/k8s/base/frontend.yaml"),
-    filesha256("${path.module}/k8s/base/frontend/index.html"),
-    filesha256("${path.module}/k8s/base/frontend/app.js"),
-    filesha256("${path.module}/k8s/base/ollama.yaml"),
-    filesha256("${path.module}/k8s/base/postgres.yaml"),
-    filesha256("${path.module}/k8s/base/network.yaml"),
+    local.manifest_hash,
     filesha256("${path.module}/scripts/deploy.sh")
   ]
 

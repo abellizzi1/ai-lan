@@ -19,8 +19,8 @@ if [ "$enable_ollama" != "true" ] && [ -z "${PROVIDER_API_KEY//[[:space:]]/}" ];
   exit 1
 fi
 
-# Terraform may retain the local resource in state after Docker Desktop has
-# removed its k3d containers. Recreate that local cluster before deploying.
+# Terraform may retain the cluster in state after its containers are removed.
+# Recreate the cluster before deploying.
 server_container="k3d-$cluster_name-server-0"
 if ! docker inspect "$server_container" >/dev/null 2>&1; then
   echo "K3s server container is missing; recreating local cluster $cluster_name."
