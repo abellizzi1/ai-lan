@@ -1,8 +1,10 @@
+import asyncio
 import hashlib
 import os
 import secrets
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
+from functools import wraps
 from uuid import UUID, uuid4
 
 import asyncpg
@@ -25,6 +27,7 @@ SESSION_COOKIE = "ai_gateway_session"
 SESSION_DAYS = 14
 password_hasher = PasswordHasher()
 markdown = MarkdownIt("commonmark", {"html": False}).enable("table")
+request_locks: dict[int, asyncio.Lock] = {}
 
 
 @asynccontextmanager
@@ -55,6 +58,9 @@ async def lifespan(app: FastAPI):
               ADD COLUMN IF NOT EXISTS total_tokens BIGINT;
             CREATE INDEX IF NOT EXISTS user_request_log_user_id_id_idx
               ON user_request_log (user_id, id DESC);
+            CREATE INDEX IF NOT EXISTS user_request_log_user_recent_tokens_idx
+              ON user_request_log (user_id, created_at)
+              WHERE total_tokens IS NOT NULL;
             CREATE TABLE IF NOT EXISTS app_users (
               id BIGSERIAL PRIMARY KEY,
               username TEXT NOT NULL UNIQUE,
@@ -63,6 +69,13 @@ async def lifespan(app: FastAPI):
               disabled BOOLEAN NOT NULL DEFAULT FALSE,
               created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             );
+            ALTER TABLE app_users ADD COLUMN IF NOT EXISTS token_limit BIGINT
+              CHECK (token_limit > 0);
+            CREATE TABLE IF NOT EXISTS gateway_settings (
+              id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+              token_limit BIGINT CHECK (token_limit > 0)
+            );
+            INSERT INTO gateway_settings (id) VALUES (TRUE) ON CONFLICT DO NOTHING;
             CREATE TABLE IF NOT EXISTS user_sessions (
               token_hash TEXT PRIMARY KEY,
               user_id BIGINT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
@@ -136,8 +149,36 @@ async def require_admin(request: Request):
     return user
 
 
+def serialize_user_requests(handler):
+    @wraps(handler)
+    async def wrapped(*args, **kwargs):
+        request = kwargs.get("request")
+        if request is None:
+            request = next(arg for arg in args if isinstance(arg, Request))
+        user = await current_user(request)
+        lock = request_locks.setdefault(user["id"], asyncio.Lock())
+        async with lock:
+            return await handler(*args, **kwargs)
+    return wrapped
+
+
 async def charge(user_id: int):
     async with app.state.db.acquire() as conn:
+        limits = await conn.fetchrow("""
+          SELECT u.token_limit AS user_limit, s.token_limit AS global_limit
+          FROM app_users u CROSS JOIN gateway_settings s
+          WHERE u.id=$1
+        """, user_id)
+        if limits and (limits["user_limit"] is not None or limits["global_limit"] is not None):
+            used_tokens = await conn.fetchval("""
+              SELECT COALESCE(SUM(total_tokens), 0)::bigint
+              FROM user_request_log
+              WHERE user_id=$1 AND created_at > now() - interval '1 hour'
+                AND total_tokens IS NOT NULL
+            """, user_id)
+            if any(limit is not None and used_tokens >= limit
+                   for limit in (limits["user_limit"], limits["global_limit"])):
+                raise HTTPException(status_code=429, detail="Hourly token limit reached")
         used = await conn.fetchval("""
           INSERT INTO user_request_usage (user_id, usage_date, requests)
           VALUES ($1, $2, 1)
@@ -160,7 +201,13 @@ def token_counts(result: object) -> tuple[int | None, int | None, int | None]:
         value = usage.get(key)
         return value if type(value) is int and 0 <= value <= 9223372036854775807 else None
 
-    return count("prompt_tokens"), count("completion_tokens"), count("total_tokens")
+    prompt = count("prompt_tokens")
+    completion = count("completion_tokens")
+    total = count("total_tokens")
+    if total is None and prompt is not None and completion is not None:
+        combined = prompt + completion
+        total = combined if combined <= 9223372036854775807 else None
+    return prompt, completion, total
 
 
 async def log_request(user_id: int, model: str | None, status: int,
@@ -243,12 +290,56 @@ async def require_existing_user(conn, user_id: int):
         raise HTTPException(status_code=404, detail="User not found")
 
 
+def parse_token_limit(data: object) -> int | None:
+    if not isinstance(data, dict) or "token_limit" not in data:
+        raise HTTPException(status_code=400, detail="Provide token_limit as a positive integer or null")
+    limit = data["token_limit"]
+    if limit is not None and (type(limit) is not int or not 0 < limit <= 9223372036854775807):
+        raise HTTPException(status_code=400, detail="Token limit must be a positive integer or null")
+    return limit
+
+
+async def requested_token_limit(request: Request) -> int | None:
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Request body must be JSON")
+    return parse_token_limit(data)
+
+
+@app.get("/auth/admin/token-limit")
+async def admin_token_limit(request: Request):
+    await require_admin(request)
+    async with app.state.db.acquire() as conn:
+        limit = await conn.fetchval("SELECT token_limit FROM gateway_settings WHERE id=TRUE")
+    return {"token_limit": limit}
+
+
+@app.put("/auth/admin/token-limit")
+async def set_admin_token_limit(request: Request):
+    await require_admin(request)
+    limit = await requested_token_limit(request)
+    async with app.state.db.acquire() as conn:
+        await conn.execute("UPDATE gateway_settings SET token_limit=$1 WHERE id=TRUE", limit)
+    return {"token_limit": limit}
+
+
+@app.put("/auth/admin/users/{user_id}/token-limit")
+async def set_user_token_limit(user_id: int, request: Request):
+    await require_admin(request)
+    limit = await requested_token_limit(request)
+    async with app.state.db.acquire() as conn:
+        await require_existing_user(conn, user_id)
+        await conn.execute("UPDATE app_users SET token_limit=$1 WHERE id=$2", limit, user_id)
+    return {"token_limit": limit}
+
+
 @app.get("/auth/admin/users")
 async def admin_users(request: Request):
     await require_admin(request)
     async with app.state.db.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT u.id, u.username, u.is_admin, u.disabled, u.created_at,
+            SELECT u.id, u.username, u.is_admin, u.disabled, u.created_at, u.token_limit,
               COALESCE((SELECT SUM(requests) FROM user_request_usage q
                         WHERE q.user_id=u.id), 0)::bigint AS charged_requests,
               (SELECT COUNT(*) FROM user_request_log l
@@ -261,6 +352,11 @@ async def admin_users(request: Request):
                         WHERE l.user_id=u.id), 0)::bigint AS completion_tokens,
               COALESCE((SELECT SUM(total_tokens) FROM user_request_log l
                         WHERE l.user_id=u.id), 0)::bigint AS total_tokens,
+              COALESCE((SELECT SUM(total_tokens) FROM user_request_log l
+                        WHERE l.user_id=u.id
+                          AND l.created_at > now() - interval '1 hour'
+                          AND l.total_tokens IS NOT NULL), 0)::bigint
+                AS hourly_tokens,
               (SELECT COUNT(*) FROM conversations c
                WHERE c.user_id=u.id) AS conversation_count,
               (SELECT COUNT(*) FROM conversation_messages m
@@ -457,6 +553,7 @@ async def delete_chat(chat_id: str, request: Request):
 
 
 @app.post("/v1/chats/{chat_id}/messages")
+@serialize_user_requests
 async def send_chat_message(chat_id: str, request: Request):
     user = await current_user(request)
     parsed_id = parse_chat_id(chat_id)
@@ -523,6 +620,7 @@ async def send_chat_message(chat_id: str, request: Request):
 
 
 @app.post("/v1/chat/completions")
+@serialize_user_requests
 async def chat_completions(request: Request):
     user = await current_user(request)
     user_id = await charge(user["id"])
