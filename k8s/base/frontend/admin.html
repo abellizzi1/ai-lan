@@ -85,6 +85,8 @@
     .limit-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
     .limit-form label { display: grid; gap: 5px; color: #42564c; font-size: 13px; font-weight: 600; }
     .limit-form input { width: min(240px, 100%); padding: 9px 11px; border: 1px solid #ccd9d1; border-radius: 9px; font: inherit; }
+    .limit-form .checkbox-label { display: flex; align-items: center; gap: 9px; }
+    .limit-form input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: #196b54; }
     .limit-form button { border: 0; border-radius: 9px; padding: 10px 15px; background: #196b54; color: white; }
     .limit-form button:hover { background: #11543f; }
     .limit-status { margin: 8px 0 0 !important; min-height: 18px; color: #27684f !important; }
@@ -117,6 +119,15 @@
         </form>
         <p id="global-limit-status" class="limit-status" role="status"></p>
       </section>
+      <section class="panel limit-panel" aria-labelledby="global-block-heading">
+        <h3 id="global-block-heading">Block requests for everyone</h3>
+        <p>Stops new chat messages and API completions for every account, including administrators. Sign-in, saved conversations, and this dashboard remain available. Requests already in progress may finish.</p>
+        <form id="global-block-form" class="limit-form">
+          <label class="checkbox-label" for="global-requests-blocked"><input id="global-requests-blocked" type="checkbox">Block all users from sending requests</label>
+          <button type="submit">Save request access</button>
+        </form>
+        <p id="global-block-status" class="limit-status" role="status"></p>
+      </section>
       <div class="layout">
         <aside class="people panel"><div class="panel-head"><h3>Accounts</h3><p>Select a user to inspect their stored data.</p></div><div id="user-list" class="user-list"></div></aside>
         <div class="detail panel">
@@ -133,6 +144,15 @@
                 <button type="submit">Save limit</button>
               </form>
               <p id="user-limit-status" class="limit-status" role="status"></p>
+            </section>
+            <section class="data-section" aria-labelledby="user-block-heading">
+              <div class="section-heading"><h3 id="user-block-heading">Account request access</h3></div>
+              <p class="muted">Block this account from sending new chat messages or API completions. The account can still sign in and read saved conversations.</p>
+              <form id="user-block-form" class="limit-form">
+                <label class="checkbox-label" for="user-requests-blocked"><input id="user-requests-blocked" type="checkbox">Block this user from sending requests</label>
+                <button type="submit">Save request access</button>
+              </form>
+              <p id="user-block-status" class="limit-status" role="status"></p>
             </section>
             <div id="detail-status" class="status" role="status"></div>
             <section class="data-section">

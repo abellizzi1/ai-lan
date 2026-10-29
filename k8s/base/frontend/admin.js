@@ -1,6 +1,7 @@
 const $ = (selector) => document.querySelector(selector);
 let users = [];
 let globalTokenLimit = null;
+let allRequestsBlocked = false;
 let selectedUserId = null;
 let selectedConversationId = null;
 let selectionVersion = 0;
@@ -38,6 +39,14 @@ function limitRequest(path, tokenLimit) {
     method: 'PUT',
     headers: {'content-type': 'application/json'},
     body: JSON.stringify({token_limit: tokenLimit}),
+  });
+}
+
+function blockRequest(path, blocked) {
+  return api(path, {
+    method: 'PUT',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({blocked}),
   });
 }
 
@@ -102,7 +111,7 @@ function renderUsers() {
     const name = document.createElement('strong');
     name.textContent = user.username;
     const detail = document.createElement('small');
-    detail.textContent = `${number(user.charged_requests)} requests · ${number(user.total_tokens)} tokens`;
+    detail.textContent = `${number(user.charged_requests)} requests · ${number(user.total_tokens)} tokens${user.requests_blocked ? ' · requests blocked' : ''}`;
     button.append(name, detail);
     button.onclick = () => selectUser(user.id);
     list.append(button);
@@ -115,9 +124,12 @@ function renderUserSummary(user) {
   $('#detail-name').textContent = user.username;
   $('#detail-meta').textContent = `Created ${time(user.created_at)} · ${number(user.active_sessions)} active session(s) · ${number(user.message_count)} saved messages`;
   $('#user-token-limit').value = user.token_limit ?? '';
+  $('#user-requests-blocked').checked = user.requests_blocked;
   $('#hourly-token-usage').textContent = `${number(user.hourly_tokens)} provider-reported tokens in the last 60 minutes.`;
   $('#user-limit-status').textContent = '';
   $('#user-limit-status').classList.remove('error');
+  $('#user-block-status').textContent = '';
+  $('#user-block-status').classList.remove('error');
   const badge = $('#detail-badge');
   badge.textContent = user.disabled ? 'Disabled' : user.is_admin ? 'Administrator' : 'Member';
   badge.classList.toggle('disabled', user.disabled);
@@ -295,10 +307,14 @@ async function refresh() {
   $('#refresh').disabled = true;
   $('#page-status').textContent = '';
   try {
-    [users, {token_limit: globalTokenLimit}] = await Promise.all([
-      api('/auth/admin/users'), api('/auth/admin/token-limit'),
+    const [loadedUsers, tokenSettings, blockSettings] = await Promise.all([
+      api('/auth/admin/users'), api('/auth/admin/token-limit'), api('/auth/admin/request-block'),
     ]);
+    users = loadedUsers;
+    globalTokenLimit = tokenSettings.token_limit;
+    allRequestsBlocked = blockSettings.blocked;
     $('#global-token-limit').value = globalTokenLimit ?? '';
+    $('#global-requests-blocked').checked = allRequestsBlocked;
     $('#admin-content').hidden = false;
     renderOverview();
     const id = users.some((user) => user.id === selectedUserId) ? selectedUserId : users[0]?.id;
@@ -350,6 +366,50 @@ $('#user-limit-form').onsubmit = async (event) => {
     if (selectedUserId === userId) status.textContent = result.token_limit == null ? 'Account limit cleared.' : 'Account limit saved.';
   } catch (error) {
     if (selectedUserId === userId) { status.textContent = error.message; status.classList.add('error'); }
+  }
+  finally { button.disabled = false; }
+};
+$('#global-block-form').onsubmit = async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('button');
+  const status = $('#global-block-status');
+  button.disabled = true;
+  status.textContent = '';
+  status.classList.remove('error');
+  try {
+    const result = await blockRequest('/auth/admin/request-block', $('#global-requests-blocked').checked);
+    allRequestsBlocked = result.blocked;
+    status.textContent = result.blocked ? 'Requests blocked for all users.' : 'Global block removed. Individual blocks still apply.';
+  } catch (error) {
+    $('#global-requests-blocked').checked = allRequestsBlocked;
+    status.textContent = error.message;
+    status.classList.add('error');
+  }
+  finally { button.disabled = false; }
+};
+$('#user-block-form').onsubmit = async (event) => {
+  event.preventDefault();
+  const userId = selectedUserId;
+  if (userId == null) return;
+  const button = event.currentTarget.querySelector('button');
+  const status = $('#user-block-status');
+  button.disabled = true;
+  status.textContent = '';
+  status.classList.remove('error');
+  try {
+    const result = await blockRequest(`/auth/admin/users/${userId}/request-block`, $('#user-requests-blocked').checked);
+    const user = users.find((item) => item.id === userId);
+    if (user) user.requests_blocked = result.blocked;
+    renderUsers();
+    if (selectedUserId === userId) {
+      status.textContent = result.blocked ? 'Requests blocked for this user.' : 'Individual block removed. The global block still applies if enabled.';
+    }
+  } catch (error) {
+    if (selectedUserId === userId) {
+      $('#user-requests-blocked').checked = users.find((item) => item.id === userId)?.requests_blocked ?? false;
+      status.textContent = error.message;
+      status.classList.add('error');
+    }
   }
   finally { button.disabled = false; }
 };

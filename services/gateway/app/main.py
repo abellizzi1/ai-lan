@@ -71,10 +71,15 @@ async def lifespan(app: FastAPI):
             );
             ALTER TABLE app_users ADD COLUMN IF NOT EXISTS token_limit BIGINT
               CHECK (token_limit > 0);
+            ALTER TABLE app_users ADD COLUMN IF NOT EXISTS requests_blocked BOOLEAN
+              NOT NULL DEFAULT FALSE;
             CREATE TABLE IF NOT EXISTS gateway_settings (
               id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
-              token_limit BIGINT CHECK (token_limit > 0)
+              token_limit BIGINT CHECK (token_limit > 0),
+              requests_blocked BOOLEAN NOT NULL DEFAULT FALSE
             );
+            ALTER TABLE gateway_settings ADD COLUMN IF NOT EXISTS requests_blocked BOOLEAN
+              NOT NULL DEFAULT FALSE;
             INSERT INTO gateway_settings (id) VALUES (TRUE) ON CONFLICT DO NOTHING;
             CREATE TABLE IF NOT EXISTS user_sessions (
               token_hash TEXT PRIMARY KEY,
@@ -165,10 +170,15 @@ def serialize_user_requests(handler):
 async def charge(user_id: int):
     async with app.state.db.acquire() as conn:
         limits = await conn.fetchrow("""
-          SELECT u.token_limit AS user_limit, s.token_limit AS global_limit
+          SELECT u.token_limit AS user_limit, s.token_limit AS global_limit,
+                 u.requests_blocked AS user_blocked, s.requests_blocked AS global_blocked
           FROM app_users u CROSS JOIN gateway_settings s
           WHERE u.id=$1
         """, user_id)
+        if limits and limits["global_blocked"]:
+            raise HTTPException(status_code=403, detail="Requests are blocked for all users by an administrator")
+        if limits and limits["user_blocked"]:
+            raise HTTPException(status_code=403, detail="Your requests are blocked by an administrator")
         if limits and (limits["user_limit"] is not None or limits["global_limit"] is not None):
             used_tokens = await conn.fetchval("""
               SELECT COALESCE(SUM(total_tokens), 0)::bigint
@@ -307,6 +317,43 @@ async def requested_token_limit(request: Request) -> int | None:
     return parse_token_limit(data)
 
 
+async def requested_block_state(request: Request) -> bool:
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Request body must be JSON")
+    if not isinstance(data, dict) or type(data.get("blocked")) is not bool:
+        raise HTTPException(status_code=400, detail="Provide blocked as true or false")
+    return data["blocked"]
+
+
+@app.get("/auth/admin/request-block")
+async def admin_request_block(request: Request):
+    await require_admin(request)
+    async with app.state.db.acquire() as conn:
+        blocked = await conn.fetchval("SELECT requests_blocked FROM gateway_settings WHERE id=TRUE")
+    return {"blocked": blocked}
+
+
+@app.put("/auth/admin/request-block")
+async def set_admin_request_block(request: Request):
+    await require_admin(request)
+    blocked = await requested_block_state(request)
+    async with app.state.db.acquire() as conn:
+        await conn.execute("UPDATE gateway_settings SET requests_blocked=$1 WHERE id=TRUE", blocked)
+    return {"blocked": blocked}
+
+
+@app.put("/auth/admin/users/{user_id}/request-block")
+async def set_user_request_block(user_id: int, request: Request):
+    await require_admin(request)
+    blocked = await requested_block_state(request)
+    async with app.state.db.acquire() as conn:
+        await require_existing_user(conn, user_id)
+        await conn.execute("UPDATE app_users SET requests_blocked=$1 WHERE id=$2", blocked, user_id)
+    return {"blocked": blocked}
+
+
 @app.get("/auth/admin/token-limit")
 async def admin_token_limit(request: Request):
     await require_admin(request)
@@ -339,7 +386,8 @@ async def admin_users(request: Request):
     await require_admin(request)
     async with app.state.db.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT u.id, u.username, u.is_admin, u.disabled, u.created_at, u.token_limit,
+            SELECT u.id, u.username, u.is_admin, u.disabled, u.created_at,
+              u.token_limit, u.requests_blocked,
               COALESCE((SELECT SUM(requests) FROM user_request_usage q
                         WHERE q.user_id=u.id), 0)::bigint AS charged_requests,
               (SELECT COUNT(*) FROM user_request_log l
