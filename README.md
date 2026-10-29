@@ -45,9 +45,15 @@ For local inference, set `enable_ollama` to `true`:
 
 ## Use
 
+### Accessing the website
+
 Open `http://<YOUR_HOST_LAN_IP>:8080` from a device on the local network and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard**. Conversations are saved in PostgreSQL per account. API requests to `/v1/chat/completions` use the login session cookie.
 
+### Setting token limits
+
 In **Admin dashboard**, the admin can optionally set an hourly token limit that applies to each account, and an optional limit for an individual account. Leave either field blank and save to clear it. If both are set, the lower limit applies. The gateway counts provider-reported tokens from the previous 60 minutes and rejects new chat and API completion requests when that total reaches the limit. Requests without provider-reported usage do not add to the total, and an in-progress request can finish above the limit. Usage falls out of the rolling window automatically.
+
+### API requests
 
 For an API request, sign in first and pass the session cookie:
 
@@ -59,6 +65,8 @@ curl -b /tmp/ai-gateway-cookies.txt http://<YOUR_HOST_LAN_IP>:8080/v1/chat/compl
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"Hello"}]}'
 ```
+
+### Managing the cluster
 
 You can utilize `kubectl` within the `infra` container if cluster management is required.
 
