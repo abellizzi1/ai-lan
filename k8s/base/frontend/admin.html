@@ -79,6 +79,16 @@
     .message-head { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: #66796e; }
     .message-content { margin-top: 7px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; font-size: 13px; }
     .status { min-height: 20px; margin: 12px 0; color: #a83e3e; font-size: 13px; }
+    .limit-panel { margin-top: 20px; padding: 20px 22px; }
+    .limit-panel h3 { margin: 0 0 5px; font-size: 17px; }
+    .limit-panel p { margin: 0 0 13px; color: #667771; font-size: 13px; }
+    .limit-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+    .limit-form label { display: grid; gap: 5px; color: #42564c; font-size: 13px; font-weight: 600; }
+    .limit-form input { width: min(240px, 100%); padding: 9px 11px; border: 1px solid #ccd9d1; border-radius: 9px; font: inherit; }
+    .limit-form button { border: 0; border-radius: 9px; padding: 10px 15px; background: #196b54; color: white; }
+    .limit-form button:hover { background: #11543f; }
+    .limit-status { margin: 8px 0 0 !important; min-height: 18px; color: #27684f !important; }
+    .limit-status.error { color: #a83e3e !important; }
     @media (max-width: 1000px) { .overview, .user-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .two-column { grid-template-columns: 1fr; } }
     @media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .people { position: static; max-height: 260px; } .detail { padding: 16px; } .topbar { flex-wrap: wrap; } }
   </style>
@@ -98,6 +108,15 @@
     <div id="page-status" class="status" role="status"></div>
     <div id="admin-content" hidden>
       <section id="overview" class="overview" aria-label="All users summary"></section>
+      <section class="panel limit-panel" aria-labelledby="global-limit-heading">
+        <h3 id="global-limit-heading">All users hourly token limit</h3>
+        <p>Optional limit for each account over a rolling 60-minute window. Leave blank for no shared limit. Provider-reported tokens count toward the limit; a request already in progress may finish above it.</p>
+        <form id="global-limit-form" class="limit-form">
+          <label for="global-token-limit">Maximum tokens per user per hour<input id="global-token-limit" type="number" min="1" max="9007199254740991" step="1" inputmode="numeric" placeholder="No limit"></label>
+          <button type="submit">Save limit</button>
+        </form>
+        <p id="global-limit-status" class="limit-status" role="status"></p>
+      </section>
       <div class="layout">
         <aside class="people panel"><div class="panel-head"><h3>Accounts</h3><p>Select a user to inspect their stored data.</p></div><div id="user-list" class="user-list"></div></aside>
         <div class="detail panel">
@@ -105,6 +124,16 @@
           <div id="detail-content" hidden>
             <div class="detail-title"><div><h2 id="detail-name"></h2><p id="detail-meta"></p></div><span id="detail-badge" class="badge"></span></div>
             <section id="user-metrics" class="user-metrics" aria-label="Selected user summary"></section>
+            <section class="data-section" aria-labelledby="user-limit-heading">
+              <div class="section-heading"><h3 id="user-limit-heading">Account hourly token limit</h3></div>
+              <p class="muted">Optional limit over a rolling 60-minute window. The lower of this limit and the all users limit applies. Leave blank to clear it.</p>
+              <p class="muted" id="hourly-token-usage"></p>
+              <form id="user-limit-form" class="limit-form">
+                <label for="user-token-limit">Maximum tokens per hour<input id="user-token-limit" type="number" min="1" max="9007199254740991" step="1" inputmode="numeric" placeholder="No individual limit"></label>
+                <button type="submit">Save limit</button>
+              </form>
+              <p id="user-limit-status" class="limit-status" role="status"></p>
+            </section>
             <div id="detail-status" class="status" role="status"></div>
             <section class="data-section">
               <div class="section-heading"><h3>Usage by day</h3><p>Request quota day and token log day are shown separately.</p></div>

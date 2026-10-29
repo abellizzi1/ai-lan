@@ -13,7 +13,7 @@ docker compose build infra
 docker compose run --rm infra bash
 ```
 
-For the default hosted setup, replace the three placeholder values below, then run the whole block inside the `infra` shell. Save these values and reuse them when you open a new shell. The default provider is OpenAI; use a [project API key](https://platform.openai.com/api-keys).
+For the default hosted setup, replace the three placeholder values below, then run the whole block inside the `infra` container. Save these values and reuse them when you open a new shell. The default provider is OpenAI; use a [project API key](https://platform.openai.com/api-keys).
 
 ```bash
 export TF_VAR_gateway_admin_username='admin'
@@ -30,7 +30,7 @@ export TF_VAR_provider_api_base='<provider-api-base-url>'
 export TF_VAR_provider_api_key='<your-provider-api-key>'
 ```
 
-Initialize and deploy from the same `infra` shell:
+Initialize and deploy from the same `infra` container:
 
 ```bash
 terraform init
@@ -47,6 +47,8 @@ For local inference, set `enable_ollama` to `true`:
 
 Open `http://<YOUR_HOST_LAN_IP>:8080` from a device on the local network and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard**. Conversations are saved in PostgreSQL per account. API requests to `/v1/chat/completions` use the login session cookie.
 
+In **Admin dashboard**, the admin can optionally set an hourly token limit that applies to each account, and an optional limit for an individual account. Leave either field blank and save to clear it. If both are set, the lower limit applies. The gateway counts provider-reported tokens from the previous 60 minutes and rejects new chat and API completion requests when that total reaches the limit. Requests without provider-reported usage do not add to the total, and an in-progress request can finish above the limit. Usage falls out of the rolling window automatically.
+
 For an API request, sign in first and pass the session cookie:
 
 ```bash
@@ -62,7 +64,7 @@ You can utilize `kubectl` within the `infra` container if cluster management is 
 
 ## Backups and teardown
 
-Run `scripts/teardown.sh` from the `infra` shell to back up PostgreSQL and destroy the cluster. The script stops if the backup fails. Dumps are written to the host's `backups/` directory, which Git ignores. Keep a copy elsewhere if the data matters.
+Run `scripts/teardown.sh` from the `infra` container to back up PostgreSQL and destroy the cluster. The script stops if the backup fails. Dumps are written to the host's `backups/` directory, which Git ignores. Keep a copy elsewhere if the data matters.
 
 On the next `terraform apply`, the newest dump is restored into a fresh database. Move dumps out of `backups/` before deploying if you want an empty database. The Ollama container image is cached by Docker, but its model is stored in a cluster volume and must be downloaded again after teardown.
 

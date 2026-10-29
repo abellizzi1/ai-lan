@@ -1,5 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
 let users = [];
+let globalTokenLimit = null;
 let selectedUserId = null;
 let selectedConversationId = null;
 let selectionVersion = 0;
@@ -9,8 +10,8 @@ let requests = [];
 let nextConversationOffset = null;
 let nextRequestOffset = null;
 
-async function api(path) {
-  const response = await fetch(path);
+async function api(path, options = {}) {
+  const response = await fetch(path, options);
   const body = await response.text();
   let data = null;
   try { data = body ? JSON.parse(body) : null; } catch { /* HTTP status is reported below. */ }
@@ -21,6 +22,24 @@ async function api(path) {
 const number = (value) => Number(value || 0).toLocaleString();
 const count = (value) => value == null ? '—' : number(value);
 const time = (value) => value ? new Date(value).toLocaleString() : '—';
+
+function limitFromInput(input) {
+  const value = input.value.trim();
+  if (!value) return null;
+  const limit = Number(value);
+  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(limit)) {
+    throw new Error('Enter a positive whole number of tokens, or leave the field blank.');
+  }
+  return limit;
+}
+
+function limitRequest(path, tokenLimit) {
+  return api(path, {
+    method: 'PUT',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({token_limit: tokenLimit}),
+  });
+}
 
 function makeMetric(label, value) {
   const card = document.createElement('div');
@@ -67,7 +86,7 @@ function renderOverview() {
   overview.replaceChildren(
     makeMetric('Accounts', number(users.length)),
     makeMetric('Charged requests', number(users.reduce((sum, user) => sum + user.charged_requests, 0))),
-    makeMetric('Measured tokens', number(users.reduce((sum, user) => sum + user.total_tokens, 0))),
+    makeMetric('All-time measured tokens', number(users.reduce((sum, user) => sum + user.total_tokens, 0))),
     makeMetric('Saved conversations', number(users.reduce((sum, user) => sum + user.conversation_count, 0))),
   );
 }
@@ -95,6 +114,10 @@ function renderUserSummary(user) {
   $('#detail-content').hidden = false;
   $('#detail-name').textContent = user.username;
   $('#detail-meta').textContent = `Created ${time(user.created_at)} · ${number(user.active_sessions)} active session(s) · ${number(user.message_count)} saved messages`;
+  $('#user-token-limit').value = user.token_limit ?? '';
+  $('#hourly-token-usage').textContent = `${number(user.hourly_tokens)} provider-reported tokens in the last 60 minutes.`;
+  $('#user-limit-status').textContent = '';
+  $('#user-limit-status').classList.remove('error');
   const badge = $('#detail-badge');
   badge.textContent = user.disabled ? 'Disabled' : user.is_admin ? 'Administrator' : 'Member';
   badge.classList.toggle('disabled', user.disabled);
@@ -102,7 +125,7 @@ function renderUserSummary(user) {
     makeMetric('Charged requests', number(user.charged_requests)),
     makeMetric('Logged / measured', `${number(user.logged_requests)} / ${number(user.measured_requests)}`),
     makeMetric('Input / output tokens', `${number(user.prompt_tokens)} / ${number(user.completion_tokens)}`),
-    makeMetric('Total tokens', number(user.total_tokens)),
+    makeMetric('All-time tokens', number(user.total_tokens)),
   );
 }
 
@@ -272,7 +295,10 @@ async function refresh() {
   $('#refresh').disabled = true;
   $('#page-status').textContent = '';
   try {
-    users = await api('/auth/admin/users');
+    [users, {token_limit: globalTokenLimit}] = await Promise.all([
+      api('/auth/admin/users'), api('/auth/admin/token-limit'),
+    ]);
+    $('#global-token-limit').value = globalTokenLimit ?? '';
     $('#admin-content').hidden = false;
     renderOverview();
     const id = users.some((user) => user.id === selectedUserId) ? selectedUserId : users[0]?.id;
@@ -290,6 +316,43 @@ async function refresh() {
 $('#more-conversations').onclick = () => loadMore('conversations');
 $('#more-requests').onclick = () => loadMore('requests');
 $('#refresh').onclick = refresh;
+$('#global-limit-form').onsubmit = async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button');
+  const status = $('#global-limit-status');
+  button.disabled = true;
+  status.textContent = '';
+  status.classList.remove('error');
+  try {
+    const limit = limitFromInput($('#global-token-limit'));
+    const result = await limitRequest('/auth/admin/token-limit', limit);
+    globalTokenLimit = result.token_limit;
+    status.textContent = result.token_limit == null ? 'All users limit cleared.' : 'All users limit saved.';
+  } catch (error) { status.textContent = error.message; status.classList.add('error'); }
+  finally { button.disabled = false; }
+};
+$('#user-limit-form').onsubmit = async (event) => {
+  event.preventDefault();
+  const userId = selectedUserId;
+  if (userId == null) return;
+  const form = event.currentTarget;
+  const button = form.querySelector('button');
+  const status = $('#user-limit-status');
+  button.disabled = true;
+  status.textContent = '';
+  status.classList.remove('error');
+  try {
+    const limit = limitFromInput($('#user-token-limit'));
+    const result = await limitRequest(`/auth/admin/users/${userId}/token-limit`, limit);
+    const user = users.find((item) => item.id === userId);
+    if (user) user.token_limit = result.token_limit;
+    if (selectedUserId === userId) status.textContent = result.token_limit == null ? 'Account limit cleared.' : 'Account limit saved.';
+  } catch (error) {
+    if (selectedUserId === userId) { status.textContent = error.message; status.classList.add('error'); }
+  }
+  finally { button.disabled = false; }
+};
 $('#sign-out').onclick = async () => {
   await fetch('/auth/logout', {method: 'POST'}).catch(() => {});
   location.replace('/');
