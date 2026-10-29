@@ -39,9 +39,9 @@ terraform apply
 
 For local inference, set `enable_ollama` to `true`:
 
- ```bash
- terraform apply -var='enable_ollama=true'
- ```
+```bash
+terraform apply -var='enable_ollama=true'
+```
 
 ## Use
 
@@ -52,6 +52,10 @@ Open `http://<YOUR_HOST_LAN_IP>:8080` from a device on the local network and sig
 ### Setting token limits
 
 In **Admin dashboard**, the admin can optionally set an hourly token limit that applies to each account, and an optional limit for an individual account. Leave either field blank and save to clear it. If both are set, the lower limit applies. The gateway counts provider-reported tokens from the previous 60 minutes and rejects new chat and API completion requests when that total reaches the limit. Requests without provider-reported usage do not add to the total, and an in-progress request can finish above the limit. Usage falls out of the rolling window automatically.
+
+### Blocking requests
+
+The admin can block new chat messages and API completions for all accounts or for selected accounts in **Admin dashboard**. These switches work independently: removing the all-users block leaves individual blocks in place. Blocked users can still sign in and read saved conversations, and administrators can still use the dashboard to restore request access. Requests already in progress may finish.
 
 ### API requests
 
