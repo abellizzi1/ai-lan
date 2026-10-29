@@ -37,7 +37,11 @@ terraform init
 terraform apply
 ```
 
-For local inference, run `terraform apply -var='enable_ollama=true'`. As mentioned in the code block above, set `TF_VAR_default_model` to choose your own model. To switch back to a hosted provider, set its API key and run `terraform apply -var='enable_ollama=false'`.
+For local inference, set `enable_ollama` to `true`:
+
+ ```bash
+ terraform apply -var='enable_ollama=true'
+ ```
 
 ## Use
 
@@ -54,12 +58,7 @@ curl -b /tmp/ai-gateway-cookies.txt http://<YOUR_HOST_LAN_IP>:8080/v1/chat/compl
   -d '{"messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-To check the deployment from the `infra` shell:
-
-```bash
-kubectl --kubeconfig /workspace/.kubeconfig get pods -n ai-lan
-kubectl --kubeconfig /workspace/.kubeconfig logs deployment/gateway -n ai-lan
-```
+You can utilize `kubectl` within the `infra` container if cluster management is required.
 
 ## Backups and teardown
 
