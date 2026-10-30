@@ -2,6 +2,10 @@
 *.tfstate
 *.tfstate.*
 *.tfvars
+*.tfvars.json
 .kubeconfig
 .env
+.env.*
+!.env.example
+.codex/auth.json
 backups/

@@ -84,6 +84,13 @@ On the next `terraform apply`, the newest dump is restored into a fresh database
 
 The `infra` container mounts the host Docker socket. Terraform calls the scripts in `scripts/` to create the k3d cluster, build and import the gateway image, and apply the Kubernetes manifests. The runner joins the cluster's Docker network to reach the Kubernetes API. The web/API ingress is published on host port `8080` by default.
 
+## Working with Codex
+
+- `AGENTS.md` provides persistent project context.
+- `.codex/config.toml` sets the project defaults for Codex.
+
+Start a new Codex session in this directory to load the project instructions. Project configuration loads when the directory is trusted in Codex.
+
 ## Running with Podman
 
 Future effort
