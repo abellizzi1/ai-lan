@@ -2,7 +2,8 @@
 
 LAN AI Gateway (Hearth AI) is a personal, self-hosted AI chat site with local
 accounts, saved conversations, an admin dashboard, and an OpenAI-compatible API.
-Terraform deploys nginx, a Python gateway, PostgreSQL, and optional Ollama to k3d.
+Terraform creates shared k3d infrastructure and installs Argo CD. Argo CD deploys
+nginx, a Python gateway, PostgreSQL, and optional Ollama from Git configuration.
 The current deployment serves HTTP on a trusted LAN; HTTPS is not configured.
 
 This is a public GitHub repository. Keep credentials, personal machine paths, and
@@ -20,15 +21,19 @@ unnecessary. Keep this file concise and update it when these conventions change.
   authentication, admin routes, chat persistence, provider calls, and quotas.
 - `services/gateway/requirements.txt`: pinned Python dependencies; runtime is
   Python 3.12 (`services/gateway/Dockerfile`).
-- `k8s/base/frontend/index.html` and `app.js`: chat UI, styles, and browser logic.
-- `k8s/base/frontend/admin.html` and `admin.js`: admin dashboard and its logic.
+- `ai-lan-config/base/frontend/index.html` and `app.js`: chat UI, styles, and browser logic.
+- `ai-lan-config/base/frontend/admin.html` and `admin.js`: admin dashboard and its logic.
   The frontend is plain HTML/CSS/JavaScript, with no package manager or build step.
-- `k8s/base/`: Kubernetes deployments, services, ingress, and storage.
+- `ai-lan-config/base/`: Kubernetes deployments, services, ingress, and storage.
   `kustomization.yaml` packages the four frontend files into a ConfigMap.
+- `ai-lan-config/overlays/lan/kustomization.yaml`: Docker Hub gateway image tag;
+  `overlays/ollama/` adds local inference and inherits that tag.
+- `cluster-config/`: Argo CD bootstrap, projects, and application registrations.
+  Both config folders are self-contained future repo roots, currently tracked here.
 - `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`: infrastructure entry
-  points. Source and manifest hashes trigger image rebuilds and redeployment.
-- `scripts/`: create the cluster, build/import the gateway image, deploy, and
-  back up PostgreSQL before teardown.
+  points. Terraform owns cluster creation and Argo installation, not app sync.
+- `scripts/`: connect/create the cluster, install Argo, configure runtime secrets,
+  prepare/restore AI data before registration, and back up PostgreSQL before teardown.
 - `compose.yaml` and `Dockerfile.infra`: Linux infrastructure runner with Docker,
   Terraform, k3d, and kubectl; the repository is mounted at `/workspace`.
 
@@ -56,7 +61,10 @@ unnecessary. Keep this file concise and update it when these conventions change.
   boundary; render usernames and user text through `textContent` in the browser.
 - Provider access is OpenAI-compatible and can target hosted inference or Ollama.
   Responses are currently non-streaming. Codex's model settings in `.codex/` are
-  independent of the gateway's `DEFAULT_MODEL` and Terraform `default_model`.
+  independent of the gateway's `DEFAULT_MODEL` in the application ConfigMap.
+- Build/push gateway images manually; deploy by committing an immutable image
+  tag to the config repo. Keep secrets outside Git. Preserve Argo PVC protection
+  and hashed ConfigMap references so configuration changes roll affected pods.
 - Maintain mobile layouts and existing login/admin flows when editing the UI.
 - Document user-visible behavior and setup changes in `README.md`.
 
@@ -71,7 +79,8 @@ Run checks relevant to the change and report what was actually verified:
 - Terraform: run `terraform fmt -check -diff` in the repository root, then
   `terraform validate` when initialized.
 - Shell scripts: run `bash -n` on changed scripts. Preserve LF line endings.
-- Manifests: render with `kubectl kustomize k8s/base` when kubectl is available.
+- Manifests: render both `ai-lan-config/overlays/lan` and `overlays/ollama`, plus
+  `cluster-config/bootstrap` and `cluster-config/clusters/local`, with kubectl kustomize.
 - Run `git diff --check` before finishing. If tooling is unavailable, report the
   limitation; do not deploy the application merely to validate a small edit.
 
@@ -82,12 +91,16 @@ The supported infrastructure workflow runs inside the Linux `infra` container:
 the README for environment variables and Terraform commands from `/workspace`.
 The Windows host shell is PowerShell; deployment scripts require Bash.
 
-`scripts/deploy.sh` refreshes `.kubeconfig`, creates Kubernetes secrets, restores
-the newest `backups/postgres-*.dump` into an empty database, and restarts services.
+`scripts/connect-cluster.sh` refreshes `.kubeconfig` for each runner shell.
+`scripts/prepare-ai-lan.sh` creates runtime secrets and restores the newest
+`backups/postgres-*.dump` into an empty database before Argo registration.
+`scripts/configure-ai-secrets.sh` handles later secret changes; restart affected pods.
 The namespace is `ai-lan`; the default published HTTP port is `8080`.
 
 For a requested teardown, use `scripts/teardown.sh`, which backs up PostgreSQL
-before `terraform destroy`. Cluster volumes disappear on teardown; retain dumps.
+before `terraform destroy`; it stops Argo reconciliation and AI writes first.
+Teardown destroys all projects in this shared cluster; only AI PostgreSQL is
+backed up by this script. Cluster volumes disappear on teardown; retain dumps.
 Treat `terraform.tfstate*`, `.kubeconfig`, `.env`, `*.tfvars`, and database backups
 as sensitive runtime data. Avoid reading or printing them unless needed for the
 task, and never copy credentials or database contents into tracked documentation.

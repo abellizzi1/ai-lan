@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile.infra
     working_dir: /workspace
+    ports:
+      - "127.0.0.1:8081:8081"
     volumes:
       - .:/workspace
       - /var/run/docker.sock:/var/run/docker.sock

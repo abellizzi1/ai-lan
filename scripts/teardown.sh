@@ -5,26 +5,34 @@ project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 kubeconfig="$project_root/.kubeconfig"
 namespace="ai-lan"
 
-if kubectl --kubeconfig "$kubeconfig" get deployment/postgres --namespace "$namespace" >/dev/null 2>&1; then
-  backup_dir="$project_root/backups"
-  mkdir -p "$backup_dir"
-  timestamp=$(date -u +%Y%m%dT%H%M%SZ)
-  backup_file="$backup_dir/postgres-$timestamp.dump"
-  temp_file="$backup_file.tmp"
-  postgres_pod=$(kubectl --kubeconfig "$kubeconfig" get pod --namespace "$namespace" -l app=postgres -o jsonpath='{.items[0].metadata.name}')
+bash "$project_root/scripts/connect-cluster.sh" "${CLUSTER_NAME:-ai-lan}"
+export KUBECONFIG="$kubeconfig"
 
-  echo "Backing up PostgreSQL to $backup_file"
-  kubectl --kubeconfig "$kubeconfig" exec --namespace "$namespace" "$postgres_pod" -- pg_dump -U ai_gateway -d ai_gateway -Fc > "$temp_file"
-  if [ ! -s "$temp_file" ]; then
-    echo "PostgreSQL backup is empty; refusing to destroy the cluster." >&2
-    rm -f "$temp_file"
-    exit 1
+# Stop reconciliation before scaling the gateway, including any in-flight
+# sync. This affects every application because teardown destroys the cluster.
+controller=$(kubectl get statefulset argocd-application-controller --namespace argocd --ignore-not-found -o name)
+if [ -n "$controller" ]; then
+  kubectl scale --namespace argocd "$controller" --replicas=0
+  controller_pods=$(kubectl get pods --namespace argocd -l app.kubernetes.io/name=argocd-application-controller -o name)
+  if [ -n "$controller_pods" ]; then
+    kubectl wait --namespace argocd --for=delete pod -l app.kubernetes.io/name=argocd-application-controller --timeout=180s
   fi
-  mv "$temp_file" "$backup_file"
-  echo "Backup completed."
-  kubectl --kubeconfig "$kubeconfig" -n "$namespace" scale deployment/gateway --replicas=0
+fi
+gateway=$(kubectl get deployment gateway --namespace "$namespace" --ignore-not-found -o name)
+if [ -n "$gateway" ]; then
+  kubectl scale --namespace "$namespace" "$gateway" --replicas=0
+  gateway_pods=$(kubectl get pods --namespace "$namespace" -l app=gateway -o name)
+  if [ -n "$gateway_pods" ]; then
+    kubectl wait --namespace "$namespace" --for=delete pod -l app=gateway --timeout=180s
+  fi
+fi
+# --ignore-not-found tolerates an absent workload, but API/auth errors still
+# abort teardown rather than silently skipping a required backup.
+postgres=$(kubectl get deployment postgres --namespace "$namespace" --ignore-not-found -o name)
+if [ -n "$postgres" ]; then
+  bash "$project_root/scripts/backup-postgres.sh"
 else
   echo "No PostgreSQL deployment found; no database backup was created."
 fi
 
-terraform destroy
+terraform -chdir="$project_root" destroy

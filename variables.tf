@@ -1,5 +1,5 @@
 variable "cluster_name" {
-  description = "Name for the local k3d/K3s cluster."
+  description = "Name for the shared local k3d/K3s cluster. Retained as ai-lan to preserve existing Terraform state."
   type        = string
   default     = "ai-lan"
 }
@@ -10,45 +10,19 @@ variable "http_port" {
   default     = 8080
 }
 
-variable "gateway_api_key" {
-  description = "Bootstrap administrator password for website login. Supply through TF_VAR_gateway_api_key."
+variable "k3s_image" {
+  description = "K3s image for NEW clusters. Changing this does not upgrade or replace an existing cluster."
   type        = string
-  sensitive   = true
+  default     = "rancher/k3s:v1.34.3-k3s1"
 }
 
-variable "gateway_admin_username" {
-  description = "Username for the initial administrator account."
+variable "argocd_version" {
+  description = "Pinned Argo CD release installed by the bootstrap script. Review upgrade notes before changing."
   type        = string
-  default     = "admin"
-}
+  default     = "v3.5.6"
 
-variable "provider_api_base" {
-  description = "OpenAI-compatible upstream API base URL. Defaults to OpenAI, or the in-cluster Ollama service when enable_ollama is true."
-  type        = string
-  default     = null
-}
-
-variable "default_model" {
-  description = "Model selected by the website and used when an API request omits model. Defaults to gemma3:270m with Ollama and gpt-4o-mini with hosted inference."
-  type        = string
-  default     = null
-}
-
-variable "provider_api_key" {
-  description = "API key used by the gateway to call an OpenAI-compatible provider. Local Ollama ignores this value."
-  type        = string
-  default     = null
-  sensitive   = true
-}
-
-variable "enable_ollama" {
-  description = "Deploy the in-cluster Ollama server and use it as the inference provider."
-  type        = bool
-  default     = false
-}
-
-variable "postgres_password" {
-  description = "Password for the gateway PostgreSQL role. Supply through TF_VAR_postgres_password."
-  type        = string
-  sensitive   = true
+  validation {
+    condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+$", var.argocd_version))
+    error_message = "Use a release tag such as v3.5.6."
+  }
 }

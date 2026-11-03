@@ -1,12 +1,3 @@
-locals {
-  image_name        = "local/ai-gateway:dev"
-  provider_api_base = coalesce(var.provider_api_base, var.enable_ollama ? "http://ollama:11434/v1" : "https://api.openai.com/v1")
-  provider_api_key  = var.provider_api_key == null ? (var.enable_ollama ? "ollama" : "") : var.provider_api_key
-  default_model     = var.default_model == null ? (var.enable_ollama ? "gemma3:270m" : "gpt-4o-mini") : var.default_model
-  source_hash       = sha256(join("", [for file in fileset(path.module, "services/gateway/**") : filesha256("${path.module}/${file}")]))
-  manifest_hash     = sha256(join("", [for file in fileset(path.module, "k8s/base/**") : filesha256("${path.module}/${file}")]))
-}
-
 resource "terraform_data" "cluster" {
   input = {
     cluster_name = var.cluster_name
@@ -16,6 +7,9 @@ resource "terraform_data" "cluster" {
   provisioner "local-exec" {
     command     = "bash '${path.module}/scripts/create-cluster.sh' '${var.cluster_name}' '${var.http_port}'"
     interpreter = ["/bin/bash", "-c"]
+    environment = {
+      K3S_IMAGE = var.k3s_image
+    }
   }
 
   provisioner "local-exec" {
@@ -28,36 +22,20 @@ resource "terraform_data" "cluster" {
   }
 }
 
-resource "terraform_data" "images" {
-  triggers_replace = [local.source_hash, terraform_data.cluster.id]
-
-  provisioner "local-exec" {
-    command     = "bash '${path.module}/scripts/build-image.sh' '${var.cluster_name}' '${local.image_name}'"
-    interpreter = ["/bin/bash", "-c"]
-  }
-}
-
-resource "terraform_data" "application" {
+resource "terraform_data" "argocd" {
   triggers_replace = [
-    terraform_data.images.id,
-    tostring(var.enable_ollama),
-    local.provider_api_base,
-    local.default_model,
-    sha256(local.provider_api_key),
-    local.manifest_hash,
-    filesha256("${path.module}/scripts/deploy.sh")
+    terraform_data.cluster.id,
+    var.argocd_version,
+    filesha256("${path.module}/scripts/bootstrap-argocd.sh"),
+    filesha256("${path.module}/scripts/connect-cluster.sh")
   ]
 
-  depends_on = [terraform_data.cluster, terraform_data.images]
-
   provisioner "local-exec" {
-    command     = "bash '${path.module}/scripts/deploy.sh' '${var.cluster_name}' '${var.http_port}' '${local.provider_api_base}' '${var.enable_ollama}' '${local.default_model}'"
+    command     = "bash '${path.module}/scripts/bootstrap-argocd.sh'"
     interpreter = ["/bin/bash", "-c"]
     environment = {
-      GATEWAY_API_KEY   = var.gateway_api_key
-      GATEWAY_ADMIN_USERNAME = var.gateway_admin_username
-      PROVIDER_API_KEY  = local.provider_api_key
-      POSTGRES_PASSWORD = var.postgres_password
+      CLUSTER_NAME   = var.cluster_name
+      ARGOCD_VERSION = var.argocd_version
     }
   }
 }
