@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import json
 import os
 import secrets
 from contextlib import asynccontextmanager
@@ -12,7 +13,7 @@ import httpx
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from markdown_it import MarkdownIt
 import nh3
 
@@ -28,6 +29,9 @@ SESSION_DAYS = 14
 password_hasher = PasswordHasher()
 markdown = MarkdownIt("commonmark", {"html": False}).enable("table")
 request_locks: dict[int, asyncio.Lock] = {}
+chat_locks: dict[UUID, asyncio.Lock] = {}
+chat_pending: dict[UUID, dict] = {}
+chat_subscribers: dict[UUID, set[asyncio.Queue]] = {}
 
 
 @asynccontextmanager
@@ -107,6 +111,14 @@ async def lifespan(app: FastAPI):
             );
             CREATE INDEX IF NOT EXISTS conversation_messages_chat_id_idx
               ON conversation_messages (conversation_id, id);
+            ALTER TABLE conversation_messages ADD COLUMN IF NOT EXISTS author_username TEXT;
+            CREATE TABLE IF NOT EXISTS conversation_members (
+              conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+              user_id BIGINT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+              PRIMARY KEY (conversation_id, user_id)
+            );
+            CREATE INDEX IF NOT EXISTS conversation_members_user_idx
+              ON conversation_members (user_id, conversation_id);
         """)
         await conn.execute("""
             INSERT INTO app_users (username, password_hash, is_admin)
@@ -497,7 +509,7 @@ async def admin_conversation(chat_id: str, request: Request):
         if not chat:
             raise HTTPException(status_code=404, detail="Conversation not found")
         messages = await conn.fetch("""
-            SELECT id, role, content, created_at FROM conversation_messages
+            SELECT id, role, content, author_username, created_at FROM conversation_messages
             WHERE conversation_id=$1 ORDER BY id
         """, parsed_id)
     return {"conversation": dict(chat), "messages": [dict(row) for row in messages]}
@@ -512,9 +524,72 @@ def parse_chat_id(value: str) -> UUID:
 
 def present_message(row) -> dict:
     message = {"role": row["role"], "content": row["content"]}
+    if "author_username" in row and row["author_username"]:
+        message["username"] = row["author_username"]
     if row["role"] == "assistant":
         message["html"] = nh3.clean(markdown.render(row["content"]))
     return message
+
+
+async def accessible_chat(conn, chat_id: UUID, user_id: int):
+    chat = await conn.fetchrow("""
+        SELECT c.id, c.user_id, c.title, u.username AS owner_username
+        FROM conversations c JOIN app_users u ON u.id=c.user_id
+        WHERE c.id=$1 AND (c.user_id=$2 OR EXISTS (
+          SELECT 1 FROM conversation_members m WHERE m.conversation_id=c.id AND m.user_id=$2
+        ))
+    """, chat_id, user_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return chat
+
+
+@asynccontextmanager
+async def change_chat(chat_id: UUID, user_id: int, owner_only: bool = False):
+    # Check and acquire without yielding: competing sends are rejected, never queued.
+    # Membership changes and deletion use this lock too, so access cannot change mid-send.
+    lock = chat_locks.setdefault(chat_id, asyncio.Lock())
+    if lock.locked():
+        async with app.state.db.acquire() as conn:
+            await accessible_chat(conn, chat_id, user_id)
+        raise HTTPException(status_code=409, detail="This conversation is busy. Wait for the current response to finish.")
+    try:
+        async with lock:
+            async with app.state.db.acquire() as conn:
+                chat = await accessible_chat(conn, chat_id, user_id)
+            if owner_only and chat["user_id"] != user_id:
+                raise HTTPException(status_code=403, detail="Only the conversation owner can do that")
+            yield chat
+    finally:
+        chat_locks.pop(chat_id, None)
+
+
+def notify_chat(chat_id: UUID):
+    for queue in chat_subscribers.get(chat_id, ()):
+        if queue.empty():
+            queue.put_nowait(True)
+
+
+async def chat_snapshot(chat_id: UUID, user_id: int):
+    async with app.state.db.acquire() as conn:
+        async with conn.transaction(isolation="repeatable_read", readonly=True):
+            chat = await accessible_chat(conn, chat_id, user_id)
+            rows = await conn.fetch("""
+                SELECT m.role, m.content,
+                  CASE WHEN m.role='user' THEN COALESCE(m.author_username, $2::text) END AS author_username
+                FROM conversation_messages m WHERE m.conversation_id=$1 ORDER BY m.id
+            """, chat_id, chat["owner_username"])
+            members = await conn.fetch("""
+                SELECT u.id, u.username FROM conversation_members m
+                JOIN app_users u ON u.id=m.user_id WHERE m.conversation_id=$1
+                ORDER BY u.username
+            """, chat_id)
+    return {"id": str(chat_id), "title": chat["title"],
+            "is_owner": chat["user_id"] == user_id,
+            "owner_username": chat["owner_username"],
+            "members": [dict(row) for row in members],
+            "messages": [present_message(row) for row in rows],
+            "pending": chat_pending.get(chat_id)}
 
 
 @app.get("/v1/chats")
@@ -522,10 +597,16 @@ async def list_chats(request: Request):
     user = await current_user(request)
     async with app.state.db.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id, title, updated_at FROM conversations
-            WHERE user_id=$1 ORDER BY updated_at DESC
+            SELECT c.id, c.title, c.updated_at,
+              c.user_id=$1 AS is_owner,
+              EXISTS (SELECT 1 FROM conversation_members m WHERE m.conversation_id=c.id) AS shared
+            FROM conversations c WHERE c.user_id=$1 OR EXISTS (
+              SELECT 1 FROM conversation_members m WHERE m.conversation_id=c.id AND m.user_id=$1
+            ) ORDER BY c.updated_at DESC
         """, user["id"])
-    return [{"id": str(row["id"]), "title": row["title"], "updated_at": row["updated_at"].isoformat()} for row in rows]
+    return [{"id": str(row["id"]), "title": row["title"],
+             "updated_at": row["updated_at"].isoformat(),
+             "is_owner": row["is_owner"], "shared": row["shared"]} for row in rows]
 
 
 @app.post("/v1/chats", status_code=201)
@@ -534,7 +615,7 @@ async def create_chat(request: Request):
     chat_id = uuid4()
     async with app.state.db.acquire() as conn:
         await conn.execute("INSERT INTO conversations (id, user_id, title) VALUES ($1, $2, 'New chat')", chat_id, user["id"])
-    return {"id": str(chat_id), "title": "New chat", "messages": []}
+    return await chat_snapshot(chat_id, user["id"])
 
 
 @app.post("/v1/chats/import", status_code=201)
@@ -574,34 +655,101 @@ async def import_chat(request: Request):
 @app.get("/v1/chats/{chat_id}")
 async def get_chat(chat_id: str, request: Request):
     user = await current_user(request)
+    return await chat_snapshot(parse_chat_id(chat_id), user["id"])
+
+
+@app.get("/v1/chats/{chat_id}/events")
+async def chat_events(chat_id: str, request: Request):
+    user = await current_user(request)
     parsed_id = parse_chat_id(chat_id)
     async with app.state.db.acquire() as conn:
-        chat = await conn.fetchrow(
-            "SELECT id, title FROM conversations WHERE id=$1 AND user_id=$2", parsed_id, user["id"]
-        )
-        if not chat:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-        rows = await conn.fetch("""
-            SELECT role, content FROM conversation_messages
-            WHERE conversation_id=$1 ORDER BY id
-        """, parsed_id)
-    return {"id": str(chat["id"]), "title": chat["title"], "messages": [present_message(row) for row in rows]}
+        await accessible_chat(conn, parsed_id, user["id"])
+
+    async def events():
+        queue = asyncio.Queue(maxsize=1)
+        subscribers = chat_subscribers.setdefault(parsed_id, set())
+        subscribers.add(queue)
+        try:
+            while True:
+                # Each connection/reconnection starts with a complete snapshot.
+                # Recheck authentication and membership before every delivery.
+                try:
+                    viewer = await current_user(request)
+                    snapshot = await chat_snapshot(parsed_id, viewer["id"])
+                except HTTPException as error:
+                    yield f"event: unavailable\ndata: {json.dumps({'status': error.status_code})}\n\n"
+                    return
+                yield f"event: snapshot\ndata: {json.dumps(snapshot)}\n\n"
+                try:
+                    await asyncio.wait_for(queue.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    pass  # Periodic snapshots also recover changes after a missed notification.
+        finally:
+            subscribers.discard(queue)
+            if not subscribers:
+                chat_subscribers.pop(parsed_id, None)
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+@app.post("/v1/chats/{chat_id}/members")
+async def add_chat_member(chat_id: str, request: Request):
+    user = await current_user(request)
+    parsed_id = parse_chat_id(chat_id)
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Request body must be JSON")
+    username = data.get("username") if isinstance(data, dict) else None
+    if not isinstance(username, str) or not username.strip() or len(username) > 80:
+        raise HTTPException(status_code=400, detail="Enter an existing account username")
+    async with change_chat(parsed_id, user["id"], owner_only=True):
+        async with app.state.db.acquire() as conn:
+            member_id = await conn.fetchval(
+                "SELECT id FROM app_users WHERE username=$1 AND disabled=FALSE", username.strip())
+            if member_id is None:
+                raise HTTPException(status_code=404, detail="Account not found")
+            if member_id == user["id"]:
+                raise HTTPException(status_code=400, detail="You already own this conversation")
+            await conn.execute("""
+                INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1, $2)
+                ON CONFLICT DO NOTHING
+            """, parsed_id, member_id)
+        notify_chat(parsed_id)
+    return {"status": "ok"}
+
+
+@app.delete("/v1/chats/{chat_id}/members/{member_id}", status_code=204)
+async def remove_chat_member(chat_id: str, member_id: int, request: Request):
+    user = await current_user(request)
+    parsed_id = parse_chat_id(chat_id)
+    if not 0 < member_id <= 9223372036854775807:
+        raise HTTPException(status_code=404, detail="Participant not found")
+    async with change_chat(parsed_id, user["id"]) as chat:
+        if member_id == chat["user_id"]:
+            raise HTTPException(status_code=400, detail="The owner cannot leave their conversation")
+        if chat["user_id"] != user["id"] and member_id != user["id"]:
+            raise HTTPException(status_code=403, detail="Only the owner can remove other participants")
+        async with app.state.db.acquire() as conn:
+            await conn.execute("DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2",
+                               parsed_id, member_id)
+        notify_chat(parsed_id)
+    return Response(status_code=204)
 
 
 @app.delete("/v1/chats/{chat_id}", status_code=204)
 async def delete_chat(chat_id: str, request: Request):
     user = await current_user(request)
-    async with app.state.db.acquire() as conn:
-        result = await conn.execute(
-            "DELETE FROM conversations WHERE id=$1 AND user_id=$2", parse_chat_id(chat_id), user["id"]
-        )
-    if result == "DELETE 0":
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    parsed_id = parse_chat_id(chat_id)
+    async with change_chat(parsed_id, user["id"], owner_only=True):
+        async with app.state.db.acquire() as conn:
+            await conn.execute("DELETE FROM conversations WHERE id=$1 AND user_id=$2", parsed_id, user["id"])
+        notify_chat(parsed_id)
     return Response(status_code=204)
 
 
 @app.post("/v1/chats/{chat_id}/messages")
-@serialize_user_requests
 async def send_chat_message(chat_id: str, request: Request):
     user = await current_user(request)
     parsed_id = parse_chat_id(chat_id)
@@ -610,17 +758,26 @@ async def send_chat_message(chat_id: str, request: Request):
     if not isinstance(content, str) or not content.strip() or len(content) > 20000:
         raise HTTPException(status_code=400, detail="Enter a message of at most 20,000 characters")
     content = content.strip()
+    async with change_chat(parsed_id, user["id"]) as chat:
+        lock = request_locks.setdefault(user["id"], asyncio.Lock())
+        async with lock:
+            await current_user(request)
+            await charge(user["id"])
+            chat_pending[parsed_id] = {"role": "user", "content": content, "username": user["username"]}
+            notify_chat(parsed_id)
+            try:
+                return await complete_chat_message(parsed_id, chat, user, content, request)
+            finally:
+                chat_pending.pop(parsed_id, None)
+                notify_chat(parsed_id)
+
+
+async def complete_chat_message(parsed_id: UUID, chat, user, content: str, request: Request):
     async with app.state.db.acquire() as conn:
-        chat = await conn.fetchrow(
-            "SELECT id, title FROM conversations WHERE id=$1 AND user_id=$2", parsed_id, user["id"]
-        )
-        if not chat:
-            raise HTTPException(status_code=404, detail="Conversation not found")
         previous = await conn.fetch("""
             SELECT role, content FROM conversation_messages
             WHERE conversation_id=$1 ORDER BY id
         """, parsed_id)
-    await charge(user["id"])
     payload = {"model": DEFAULT_MODEL, "messages": [
         {"role": row["role"], "content": row["content"]} for row in previous
     ] + [{"role": "user", "content": content}]}
@@ -654,15 +811,15 @@ async def send_chat_message(chat_id: str, request: Request):
     title = content[:60] if not previous else chat["title"]
     async with app.state.db.acquire() as conn:
         async with conn.transaction():
-            await conn.executemany("""
-                INSERT INTO conversation_messages (conversation_id, role, content)
-                VALUES ($1, $2, $3)
-            """, [(parsed_id, "user", content), (parsed_id, "assistant", reply)])
+            await conn.execute("""
+                INSERT INTO conversation_messages (conversation_id, role, content, author_username)
+                VALUES ($1, 'user', $2, $3), ($1, 'assistant', $4, NULL)
+            """, parsed_id, content, user["username"], reply)
             await conn.execute(
                 "UPDATE conversations SET title=$2, updated_at=now() WHERE id=$1", parsed_id, title
             )
     return {"title": title, "messages": [
-        {"role": "user", "content": content},
+        {"role": "user", "content": content, "username": user["username"]},
         present_message({"role": "assistant", "content": reply}),
     ]}
 
