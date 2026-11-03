@@ -83,7 +83,12 @@
     .markdown table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; margin-bottom: 12px; }
     .markdown th, .markdown td { border: 1px solid #d5e1d9; padding: 7px 9px; text-align: left; }
     .message.user .message-body { background: #e4f2e9; border: 1px solid #d5eadf; padding: 11px 15px; border-radius: 16px 16px 4px 16px; }
-    .message.user .message-name { display: none; }
+    .message.user .message-name { display: block; }
+    .topbar-actions { display: flex; gap: 4px; flex: none; }
+    .live-status { flex: none; padding: 6px 22px; min-height: 28px; color: #61736b; font-size: 12px; }
+    .chat-members { padding-left: 20px; }
+    .chat-members li { padding: 4px 0; overflow-wrap: anywhere; }
+    .chat-members .icon-button { margin-left: 8px; font-size: 12px; }
     .composer-wrap { flex: none; padding: 12px 22px 20px; background: linear-gradient(#f7f8f500, #f7f8f5 25%); }
     .composer { max-width: 790px; margin: 0 auto; background: white; border: 1px solid #d8e3dd; border-radius: 17px; box-shadow: 0 9px 30px #24453a12; }
     .composer textarea { display: block; width: 100%; min-height: 58px; max-height: 180px; padding: 17px 18px 5px; border: 0; resize: none; outline: none; background: transparent; color: #203036; line-height: 1.5; }
@@ -107,6 +112,9 @@
       .mobile-shade.open { display: block; position: fixed; z-index: 19; inset: 0; background: #0e262899; }
       .main { height: 100dvh; }
       .topbar { padding: 0 14px; }
+      .topbar-title { gap: 6px; }
+      .topbar .model-pill { display: none; }
+      .topbar-actions .icon-button { padding: 8px 5px; font-size: 12px; }
       .menu-button { display: inline-flex; }
       .scroll-area { padding: 24px 15px; }
       .composer-wrap { padding: 10px 12px 12px; }
@@ -151,8 +159,12 @@
           <h2 id="chat-title">New chat</h2>
           <span id="model-pill" class="model-pill"></span>
         </div>
-        <button id="delete-chat" class="icon-button" aria-label="Delete this conversation" title="Delete this conversation" hidden>Delete chat</button>
+        <div class="topbar-actions">
+          <button id="share-chat" class="icon-button" hidden>Participants</button>
+          <button id="delete-chat" class="icon-button" aria-label="Delete this conversation for everyone" title="Delete this conversation for everyone" hidden>Delete chat</button>
+        </div>
       </header>
+      <div id="live-status" class="live-status" role="status" aria-live="polite"></div>
       <div id="scroll-area" class="scroll-area"><div id="thread" class="thread"></div></div>
       <div class="composer-wrap">
         <form id="composer" class="composer">
@@ -176,6 +188,19 @@
       <button class="primary" type="submit">Create account</button>
       <div id="admin-status" class="form-error" role="status"></div>
     </form>
+  </dialog>
+
+  <dialog id="share-dialog">
+    <button id="close-share" class="dialog-close" aria-label="Close">&times;</button>
+    <h2>Conversation participants</h2>
+    <p class="muted">Participants can read the full history and send messages. Only the owner can add accounts or delete the conversation.</p>
+    <ul id="chat-members" class="chat-members"></ul>
+    <form id="share-form">
+      <label for="share-username">Add an existing account</label>
+      <input id="share-username" maxlength="80" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+      <button id="share-submit" class="primary" type="submit">Share conversation</button>
+    </form>
+    <div id="share-status" class="form-error" role="status"></div>
   </dialog>
 
   <script src="/app.js" defer></script>

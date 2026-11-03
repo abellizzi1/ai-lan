@@ -49,6 +49,34 @@ terraform apply -var='enable_ollama=true'
 
 Open `http://<YOUR_HOST_LAN_IP>:8080` from a device on the local network and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard**. Conversations are saved in PostgreSQL per account. API requests to `/v1/chat/completions` use the login session cookie.
 
+### Shared conversations
+
+Open a saved conversation, choose **Participants**, and add an existing account by
+its exact username. The conversation appears in that account's sidebar within
+15 seconds (or on refresh). Sharing grants access to the full conversation
+history and lets participants send messages. Chats remain private until shared.
+Only the owner can add or remove other participants or delete the conversation
+for everyone; participants can leave through **Participants**.
+
+While a conversation is open, server-sent events keep its messages and participant
+list live across devices. Everyone sees the sender's username and pending prompt,
+followed by the completed AI reply. Replies are still non-streaming. Only one
+message can be processed per conversation: sending and participant changes are
+disabled while the AI responds, and competing API writes receive HTTP 409 rather
+than being queued. Other conversations remain available. Request limits and
+token usage apply to the account that sends the message.
+
+If the live connection drops, sending pauses until it reconnects and reloads the
+current conversation. Failed replies release the lock and do not save a partial
+turn; the sender can retry. Sessions and membership are checked before each live
+update. Removing a participant stops future access but cannot retract content
+they have already seen or copied.
+
+The live notifications and locks run in the gateway process, matching the current
+single-replica deployment. Multiple workers or replicas would require shared
+locking and event delivery. Existing accounts and chats are preserved by the
+idempotent startup schema additions. No new dependency or configuration is needed.
+
 ### Setting token limits
 
 In **Admin dashboard**, the admin can optionally set an hourly token limit that applies to each account, and an optional limit for an individual account. Leave either field blank and save to clear it. If both are set, the lower limit applies. The gateway counts provider-reported tokens from the previous 60 minutes and rejects new chat and API completion requests when that total reaches the limit. Requests without provider-reported usage do not add to the total, and an in-progress request can finish above the limit. Usage falls out of the rolling window automatically.

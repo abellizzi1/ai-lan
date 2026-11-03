@@ -40,7 +40,8 @@ unnecessary. Keep this file concise and update it when these conventions change.
   startup changes idempotent and preserve existing accounts and conversations.
 - Authenticate through `current_user()` and require `require_admin()` for admin
   operations. Enforce authorization in backend queries, including chat ownership.
-  Conversations currently belong to one account; there is no sharing model yet.
+  Conversations have one owner and optional `conversation_members`. Participants
+  can read/send; only owners can add/remove others or delete chats. Members can leave.
 - Passwords use Argon2. Session cookies contain random tokens; PostgreSQL stores
   their SHA-256 hashes. Preserve these conventions when changing authentication.
 - Both chat messages and `/v1/chat/completions` use request blocking and quotas.
@@ -48,6 +49,9 @@ unnecessary. Keep this file concise and update it when these conventions change.
   separate limits. Keep accounting attributed to the authenticated requester.
 - Requests are serialized per user with in-memory asyncio locks. The deployment
   has one gateway replica; those locks do not coordinate multiple processes.
+  Conversation writes also use a per-chat lock and reject competing writes with
+  HTTP 409. SSE snapshots expose pending prompts and completed turns to authorized
+  participants; reconnects reload state and each delivery rechecks session/access.
 - Assistant Markdown is rendered and sanitized on the backend. Preserve that
   boundary; render usernames and user text through `textContent` in the browser.
 - Provider access is OpenAI-compatible and can target hosted inference or Ollama.

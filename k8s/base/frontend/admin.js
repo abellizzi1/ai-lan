@@ -263,7 +263,7 @@ async function openConversation(id) {
       const head = document.createElement('div');
       head.className = 'message-head';
       const role = document.createElement('strong');
-      role.textContent = message.role === 'assistant' ? 'Assistant' : 'User';
+      role.textContent = message.role === 'assistant' ? 'Assistant' : message.author_username || chat.username;
       const stamp = document.createElement('span');
       stamp.textContent = time(message.created_at);
       head.append(role, stamp);
