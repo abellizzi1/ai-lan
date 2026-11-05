@@ -2,34 +2,26 @@
 
 A self-hosted AI chat site and OpenAI-compatible API for a trusted local network. This repository contains the Python gateway source and service Dockerfile.
 
-Start deployment from [cluster-config](https://github.com/abellizzi1/cluster-config). That repository owns the infrastructure runner, Terraform, cluster setup, Argo CD registrations, runtime secrets, and backup/restore scripts. The source repository is needed when changing and publishing gateway code.
-
-| Repository | Purpose |
-| --- | --- |
-| [cluster-config](https://github.com/abellizzi1/cluster-config) | Starting point for cluster creation and operations. |
-| [ai-lan-config](https://github.com/abellizzi1/ai-lan-config) | AI manifests, frontend files, provider/model settings, and deployed image tag. |
-| This repository | `services/gateway/app/main.py`, Python dependencies, and the service Dockerfile. |
-
 ## Publish a service update
 
-After editing service code, manually build and push a new version from this repository root:
+After editing code, build and push a new version:
 
 ```bash
-docker build -t angelobellizzi/ai-gateway:0.0.2 services/gateway
-docker push angelobellizzi/ai-gateway:0.0.2
+docker build -t angelobellizzi/ai-gateway:x.x.x services/gateway
+docker push angelobellizzi/ai-gateway:x.x.x
 ```
 
-Then change `images[0].newTag` in the sibling `ai-lan-config/overlays/lan/kustomization.yaml`, commit, and push that configuration repo. Both hosted and Ollama overlays inherit the tag. Argo CD deploys the update automatically. Use a new immutable image tag for each build.
+Then change the value of `newTag` under the `images` field in [ai-lan-config/overlays/lan/kustomization.yaml](https://github.com/abellizzi1/ai-lan-config/blob/main/overlays/lan/kustomization.yaml). Both hosted and Ollama overlays inherit the tag.
 
-Frontend files now live in `ai-lan-config/base/frontend/`; edit and push them there. Generated ConfigMap hashes roll affected pods.
+## Deploying
 
-Infrastructure and ignored runtime files formerly located here have moved to `cluster-config`. Keep Terraform state and database backups with that repository before operating an existing cluster. See its README for migration and setup instructions.
+Start deployment from [cluster-config](https://github.com/abellizzi1/cluster-config). This repository contains the configurations for the cluster setup using Terraform, including the deployment of ArgoCD. See the repository's README for further instructions.
 
 ## Use
 
 ### Accessing the website
 
-Open `http://<YOUR_HOST_LAN_IP>:8080` from a device on the local network and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard**. Conversations are saved in PostgreSQL per account. API requests to `/v1/chat/completions` use the login session cookie.
+Open `http://localhost:8080` from a device on the local network and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard**. Conversations are saved in PostgreSQL per account. API requests to `/v1/chat/completions` use the login session cookie.
 
 ### Shared conversations
 
