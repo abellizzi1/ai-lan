@@ -15,6 +15,8 @@ Then change the value of `newTag` under the `images` field in [ai-lan-config/ove
 
 ## Deploying
 
+Note that the deployment configurations for this repository lives in [ai-lan-config](https://github.com/abellizzi1/ai-lan-config). If any changes are made to the code, ensure you have pushed a new image and updated the tag in [ai-lan-config](https://github.com/abellizzi1/ai-lan-config).
+
 Start deployment from [cluster-config](https://github.com/abellizzi1/cluster-config). This repository contains the configurations for the cluster setup using Terraform, including the deployment of ArgoCD. See the repository's README for further instructions.
 
 ## Use
