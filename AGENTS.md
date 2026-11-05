@@ -16,26 +16,14 @@ unnecessary. Keep this file concise and update it when these conventions change.
 
 ## Where things live
 
-- `README.md`: setup, required environment variables, usage, backup and restore.
-- `services/gateway/app/main.py`: FastAPI app; startup schema initialization,
-  authentication, admin routes, chat persistence, provider calls, and quotas.
-- `services/gateway/requirements.txt`: pinned Python dependencies; runtime is
-  Python 3.12 (`services/gateway/Dockerfile`).
-- `ai-lan-config/base/frontend/index.html` and `app.js`: chat UI, styles, and browser logic.
-- `ai-lan-config/base/frontend/admin.html` and `admin.js`: admin dashboard and its logic.
-  The frontend is plain HTML/CSS/JavaScript, with no package manager or build step.
-- `ai-lan-config/base/`: Kubernetes deployments, services, ingress, and storage.
-  `kustomization.yaml` packages the four frontend files into a ConfigMap.
-- `ai-lan-config/overlays/lan/kustomization.yaml`: Docker Hub gateway image tag;
-  `overlays/ollama/` adds local inference and inherits that tag.
-- `cluster-config/`: Argo CD bootstrap, projects, and application registrations.
-  Both config folders are self-contained future repo roots, currently tracked here.
-- `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`: infrastructure entry
-  points. Terraform owns cluster creation and Argo installation, not app sync.
-- `scripts/`: connect/create the cluster, install Argo, configure runtime secrets,
-  prepare/restore AI data before registration, and back up PostgreSQL before teardown.
-- `compose.yaml` and `Dockerfile.infra`: Linux infrastructure runner with Docker,
-  Terraform, k3d, and kubectl; the repository is mounted at `/workspace`.
+- `README.md`: service image publishing and application usage.
+- `services/gateway/app/main.py`: FastAPI app, schema initialization, authentication,
+  admin routes, chat persistence, provider calls, and quotas.
+- `services/gateway/requirements.txt` and `Dockerfile`: Python dependencies and image.
+- Sibling `../ai-lan-config/`: Kubernetes manifests, frontend assets, provider/model
+  settings, and the deployed gateway image tag.
+- Sibling `../cluster-config/`: starting point for infrastructure, Terraform,
+  the infra Dockerfile/Compose runner, Argo registrations, and operator scripts.
 
 ## Implementation conventions
 
@@ -70,37 +58,17 @@ unnecessary. Keep this file concise and update it when these conventions change.
 
 ## Verification
 
-Run checks relevant to the change and report what was actually verified:
-
-- Gateway: validate Python syntax without importing the app or contacting the
-  database/provider. Check the affected request flow when the app is available.
-- Frontend: run `node --check` on each changed JavaScript file. For UI behavior,
-  check the affected flow in a browser when the app is available.
-- Terraform: run `terraform fmt -check -diff` in the repository root, then
-  `terraform validate` when initialized.
-- Shell scripts: run `bash -n` on changed scripts. Preserve LF line endings.
-- Manifests: render both `ai-lan-config/overlays/lan` and `overlays/ollama`, plus
-  `cluster-config/bootstrap` and `cluster-config/clusters/local`, with kubectl kustomize.
-- Run `git diff --check` before finishing. If tooling is unavailable, report the
-  limitation; do not deploy the application merely to validate a small edit.
+- Validate Python syntax without importing the app or contacting the database/provider.
+- For frontend edits in the sibling config repo, run `node --check` on changed JavaScript.
+- Run `git diff --check` in changed repositories.
+- Infrastructure and manifest checks belong in the sibling `cluster-config` repo.
+- Do not write tests unless requested; use relevant syntax/configuration checks.
 
 ## Running and deployment
 
-The supported infrastructure workflow runs inside the Linux `infra` container:
-`docker compose build infra`, then `docker compose run --rm infra bash`. Follow
-the README for environment variables and Terraform commands from `/workspace`.
-The Windows host shell is PowerShell; deployment scripts require Bash.
-
-`scripts/connect-cluster.sh` refreshes `.kubeconfig` for each runner shell.
-`scripts/prepare-ai-lan.sh` creates runtime secrets and restores the newest
-`backups/postgres-*.dump` into an empty database before Argo registration.
-`scripts/configure-ai-secrets.sh` handles later secret changes; restart affected pods.
-The namespace is `ai-lan`; the default published HTTP port is `8080`.
-
-For a requested teardown, use `scripts/teardown.sh`, which backs up PostgreSQL
-before `terraform destroy`; it stops Argo reconciliation and AI writes first.
-Teardown destroys all projects in this shared cluster; only AI PostgreSQL is
-backed up by this script. Cluster volumes disappear on teardown; retain dumps.
-Treat `terraform.tfstate*`, `.kubeconfig`, `.env`, `*.tfvars`, and database backups
-as sensitive runtime data. Avoid reading or printing them unless needed for the
-task, and never copy credentials or database contents into tracked documentation.
+Start from `../cluster-config/README.md`. Its Linux infra runner mounts that repo
+at `/workspace`. Initial AI preparation downloads the PostgreSQL manifest from
+GitHub; no application config or source checkout is needed to create the cluster.
+Build/push the service image manually here and deploy by updating the config repo.
+Terraform state, kubeconfig, secrets, private variables, and database backups are
+sensitive runtime data kept outside Git in `cluster-config`.
