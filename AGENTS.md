@@ -3,7 +3,7 @@
 LAN AI Gateway (Hearth AI) is a personal, self-hosted AI chat site with local
 accounts, saved conversations, an admin dashboard, and an OpenAI-compatible API.
 Terraform creates shared k3d infrastructure and installs Argo CD. Argo CD deploys
-nginx, a Python gateway, PostgreSQL, and optional Ollama from Git configuration.
+a Python gateway serving the frontend and API, PostgreSQL, and optional Ollama.
 The current deployment serves HTTP on a trusted LAN; HTTPS is not configured.
 
 This is a public GitHub repository. Keep credentials, personal machine paths, and
@@ -20,8 +20,8 @@ unnecessary. Keep this file concise and update it when these conventions change.
 - `services/gateway/app/main.py`: FastAPI app, schema initialization, authentication,
   admin routes, chat persistence, provider calls, and quotas.
 - `services/gateway/requirements.txt` and `Dockerfile`: Python dependencies and image.
-- Sibling `../ai-lan-config/`: Kubernetes manifests, frontend assets, provider/model
-  settings, and the deployed gateway image tag.
+- `services/gateway/app/static/`: frontend HTML/CSS/JavaScript, packaged in the gateway image.
+- Sibling `../ai-lan-config/`: Kubernetes manifests, provider/model settings, and image tag.
 - Sibling `../cluster-config/`: starting point for infrastructure, Terraform,
   the infra Dockerfile/Compose runner, Argo registrations, and operator scripts.
 
@@ -53,13 +53,14 @@ unnecessary. Keep this file concise and update it when these conventions change.
 - Build/push gateway images manually; deploy by committing an immutable image
   tag to the config repo. Keep secrets outside Git. Preserve Argo PVC protection
   and hashed ConfigMap references so configuration changes roll affected pods.
+- Register the frontend StaticFiles mount after API routes so it cannot shadow them.
 - Maintain mobile layouts and existing login/admin flows when editing the UI.
 - Document user-visible behavior and setup changes in `README.md`.
 
 ## Verification
 
 - Validate Python syntax without importing the app or contacting the database/provider.
-- For frontend edits in the sibling config repo, run `node --check` on changed JavaScript.
+- Run `node --check` on changed JavaScript in `services/gateway/app/static/`.
 - Run `git diff --check` in changed repositories.
 - Infrastructure and manifest checks belong in the sibling `cluster-config` repo.
 - Do not write tests unless requested; use relevant syntax/configuration checks.

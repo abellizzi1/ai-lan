@@ -6,6 +6,7 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from functools import wraps
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import asyncpg
@@ -14,6 +15,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from markdown_it import MarkdownIt
 import nh3
 
@@ -862,3 +864,10 @@ async def chat_completions(request: Request):
     await log_request(user_id, model, upstream.status_code,
                       request.client.host if request.client else None, result)
     return JSONResponse(result, status_code=upstream.status_code)
+
+# Keep this after API routes so the frontend does not shadow them.
+app.mount(
+    "/",
+    StaticFiles(directory=Path(__file__).resolve().parent / "static", html=True),
+    name="frontend",
+)
