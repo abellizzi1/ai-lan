@@ -1,10 +1,10 @@
 # Local AI Gateway
 
-A self-hosted AI chat site and OpenAI-compatible API for a trusted local network. This repository contains the Python gateway source and service Dockerfile.
+A self-hosted AI chat site and OpenAI-compatible API for a local network. This repository contains the Python gateway, frontend HTML/JavaScript, and their shared Dockerfile.
 
 ## Publish a service update
 
-After editing code, build and push a new version:
+The API and frontend ship together in one image. Edit Python code in `services/gateway/app/main.py` and HTML/JS files in `services/gateway/app/static/`, then build and push a new version:
 
 ```bash
 docker build -t angelobellizzi/ai-gateway:x.x.x services/gateway
