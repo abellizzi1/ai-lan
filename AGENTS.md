@@ -2,7 +2,8 @@
 
 LAN AI Gateway (Hearth AI) is a personal, self-hosted AI chat site with local
 accounts, saved conversations, an admin dashboard, and an OpenAI-compatible API.
-Terraform deploys nginx, a Python gateway, PostgreSQL, and optional Ollama to k3d.
+Terraform creates shared k3d infrastructure and installs Argo CD. Argo CD deploys
+nginx, a Python gateway, PostgreSQL, and optional Ollama from Git configuration.
 The current deployment serves HTTP on a trusted LAN; HTTPS is not configured.
 
 This is a public GitHub repository. Keep credentials, personal machine paths, and
@@ -15,22 +16,14 @@ unnecessary. Keep this file concise and update it when these conventions change.
 
 ## Where things live
 
-- `README.md`: setup, required environment variables, usage, backup and restore.
-- `services/gateway/app/main.py`: FastAPI app; startup schema initialization,
-  authentication, admin routes, chat persistence, provider calls, and quotas.
-- `services/gateway/requirements.txt`: pinned Python dependencies; runtime is
-  Python 3.12 (`services/gateway/Dockerfile`).
-- `k8s/base/frontend/index.html` and `app.js`: chat UI, styles, and browser logic.
-- `k8s/base/frontend/admin.html` and `admin.js`: admin dashboard and its logic.
-  The frontend is plain HTML/CSS/JavaScript, with no package manager or build step.
-- `k8s/base/`: Kubernetes deployments, services, ingress, and storage.
-  `kustomization.yaml` packages the four frontend files into a ConfigMap.
-- `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`: infrastructure entry
-  points. Source and manifest hashes trigger image rebuilds and redeployment.
-- `scripts/`: create the cluster, build/import the gateway image, deploy, and
-  back up PostgreSQL before teardown.
-- `compose.yaml` and `Dockerfile.infra`: Linux infrastructure runner with Docker,
-  Terraform, k3d, and kubectl; the repository is mounted at `/workspace`.
+- `README.md`: service image publishing and application usage.
+- `services/gateway/app/main.py`: FastAPI app, schema initialization, authentication,
+  admin routes, chat persistence, provider calls, and quotas.
+- `services/gateway/requirements.txt` and `Dockerfile`: Python dependencies and image.
+- Sibling `../ai-lan-config/`: Kubernetes manifests, frontend assets, provider/model
+  settings, and the deployed gateway image tag.
+- Sibling `../cluster-config/`: starting point for infrastructure, Terraform,
+  the infra Dockerfile/Compose runner, Argo registrations, and operator scripts.
 
 ## Implementation conventions
 
@@ -56,38 +49,26 @@ unnecessary. Keep this file concise and update it when these conventions change.
   boundary; render usernames and user text through `textContent` in the browser.
 - Provider access is OpenAI-compatible and can target hosted inference or Ollama.
   Responses are currently non-streaming. Codex's model settings in `.codex/` are
-  independent of the gateway's `DEFAULT_MODEL` and Terraform `default_model`.
+  independent of the gateway's `DEFAULT_MODEL` in the application ConfigMap.
+- Build/push gateway images manually; deploy by committing an immutable image
+  tag to the config repo. Keep secrets outside Git. Preserve Argo PVC protection
+  and hashed ConfigMap references so configuration changes roll affected pods.
 - Maintain mobile layouts and existing login/admin flows when editing the UI.
 - Document user-visible behavior and setup changes in `README.md`.
 
 ## Verification
 
-Run checks relevant to the change and report what was actually verified:
-
-- Gateway: validate Python syntax without importing the app or contacting the
-  database/provider. Check the affected request flow when the app is available.
-- Frontend: run `node --check` on each changed JavaScript file. For UI behavior,
-  check the affected flow in a browser when the app is available.
-- Terraform: run `terraform fmt -check -diff` in the repository root, then
-  `terraform validate` when initialized.
-- Shell scripts: run `bash -n` on changed scripts. Preserve LF line endings.
-- Manifests: render with `kubectl kustomize k8s/base` when kubectl is available.
-- Run `git diff --check` before finishing. If tooling is unavailable, report the
-  limitation; do not deploy the application merely to validate a small edit.
+- Validate Python syntax without importing the app or contacting the database/provider.
+- For frontend edits in the sibling config repo, run `node --check` on changed JavaScript.
+- Run `git diff --check` in changed repositories.
+- Infrastructure and manifest checks belong in the sibling `cluster-config` repo.
+- Do not write tests unless requested; use relevant syntax/configuration checks.
 
 ## Running and deployment
 
-The supported infrastructure workflow runs inside the Linux `infra` container:
-`docker compose build infra`, then `docker compose run --rm infra bash`. Follow
-the README for environment variables and Terraform commands from `/workspace`.
-The Windows host shell is PowerShell; deployment scripts require Bash.
-
-`scripts/deploy.sh` refreshes `.kubeconfig`, creates Kubernetes secrets, restores
-the newest `backups/postgres-*.dump` into an empty database, and restarts services.
-The namespace is `ai-lan`; the default published HTTP port is `8080`.
-
-For a requested teardown, use `scripts/teardown.sh`, which backs up PostgreSQL
-before `terraform destroy`. Cluster volumes disappear on teardown; retain dumps.
-Treat `terraform.tfstate*`, `.kubeconfig`, `.env`, `*.tfvars`, and database backups
-as sensitive runtime data. Avoid reading or printing them unless needed for the
-task, and never copy credentials or database contents into tracked documentation.
+Start from `../cluster-config/README.md`. Its Linux infra runner mounts that repo
+at `/workspace`. Initial AI preparation downloads the PostgreSQL manifest from
+GitHub; no application config or source checkout is needed to create the cluster.
+Build/push the service image manually here and deploy by updating the config repo.
+Terraform state, kubeconfig, secrets, private variables, and database backups are
+sensitive runtime data kept outside Git in `cluster-config`.

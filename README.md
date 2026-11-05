@@ -1,53 +1,29 @@
-# LAN AI Gateway
+# Local AI Gateway
 
-A self-hosted AI chat site and OpenAI-compatible API for a local network. Terraform deploys the frontend, gateway, PostgreSQL, and ingress to a k3d cluster. Inference uses OpenAI by default or an optional in-cluster Ollama server.
+A self-hosted AI chat site and OpenAI-compatible API for a trusted local network. This repository contains the Python gateway source and service Dockerfile.
 
-This is a personal-use stack. It has local accounts and request limits, but serves over HTTP without TLS. Use it only on a trusted network until HTTPS is configured.
+## Publish a service update
 
-## Setup
-
-A running Docker daemon and the `docker compose` CLI are required on the host. Terraform, k3d, kubectl, and the deployment scripts run inside the `infra` container. From the repository root:
+After editing code, build and push a new version:
 
 ```bash
-docker compose build infra
-docker compose run --rm infra bash
+docker build -t angelobellizzi/ai-gateway:x.x.x services/gateway
+docker push angelobellizzi/ai-gateway:x.x.x
 ```
 
-For the default hosted setup, replace the three placeholder values below, then run the whole block inside the `infra` container. Save these values and reuse them when you open a new shell. The default provider is OpenAI; use a [project API key](https://platform.openai.com/api-keys).
+Then change the value of `newTag` under the `images` field in [ai-lan-config/overlays/lan/kustomization.yaml](https://github.com/abellizzi1/ai-lan-config/blob/main/overlays/lan/kustomization.yaml). Both hosted and Ollama overlays inherit the tag.
 
-```bash
-export TF_VAR_gateway_admin_username='admin'
-export TF_VAR_gateway_api_key='<your-admin-password>'
-export TF_VAR_postgres_password='<your-postgres-password>'
+## Deploying
 
-# Defaults to gemma3:270m when running with Ollama, gpt-4o-mini otherwise.
-export TF_VAR_default_model='<ai-model>'
+Note that the deployment configurations for this repository lives in [ai-lan-config](https://github.com/abellizzi1/ai-lan-config). If any changes are made to the code, ensure you have pushed a new image and updated the tag in [ai-lan-config](https://github.com/abellizzi1/ai-lan-config).
 
-# The following exports are not needed if Ollama is enabled:
-# Another OpenAI-compatible provider (if applicable).
-export TF_VAR_provider_api_base='<provider-api-base-url>'
-# Provider API key
-export TF_VAR_provider_api_key='<your-provider-api-key>'
-```
-
-Initialize and deploy from the same `infra` container:
-
-```bash
-terraform init
-terraform apply
-```
-
-For local inference, set `enable_ollama` to `true`:
-
-```bash
-terraform apply -var='enable_ollama=true'
-```
+Start deployment from [cluster-config](https://github.com/abellizzi1/cluster-config). This repository contains the configurations for the cluster setup using Terraform, including the deployment of ArgoCD. See the repository's README for further instructions.
 
 ## Use
 
 ### Accessing the website
 
-Open `http://<YOUR_HOST_LAN_IP>:8080` from a device on the local network and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard**. Conversations are saved in PostgreSQL per account. API requests to `/v1/chat/completions` use the login session cookie.
+Open `http://localhost:8080` from a device on the local network and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard**. Conversations are saved in PostgreSQL per account. API requests to `/v1/chat/completions` use the login session cookie.
 
 ### Shared conversations
 
@@ -78,28 +54,3 @@ curl -b /tmp/ai-gateway-cookies.txt http://<YOUR_HOST_LAN_IP>:8080/v1/chat/compl
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"Hello"}]}'
 ```
-
-### Managing the cluster
-
-You can utilize `kubectl` within the `infra` container if cluster management is required.
-
-## Backups and teardown
-
-Run `scripts/teardown.sh` from the `infra` container to back up PostgreSQL and destroy the cluster. The script stops if the backup fails. Dumps are written to the host's `backups/` directory, which Git ignores. Keep a copy elsewhere if the data matters.
-
-On the next `terraform apply`, the newest dump is restored into a fresh database. Move dumps out of `backups/` before deploying if you want an empty database. The Ollama container image is cached by Docker, but its model is stored in a cluster volume and must be downloaded again after teardown.
-
-## How deployment works
-
-The `infra` container mounts the host Docker socket. Terraform calls the scripts in `scripts/` to create the k3d cluster, build and import the gateway image, and apply the Kubernetes manifests. The runner joins the cluster's Docker network to reach the Kubernetes API. The web/API ingress is published on host port `8080` by default.
-
-## Working with Codex
-
-- `AGENTS.md` provides persistent project context.
-- `.codex/config.toml` sets the project defaults for Codex.
-
-Start a new Codex session in this directory to load the project instructions. Project configuration loads when the directory is trusted in Codex.
-
-## Running with Podman
-
-Future effort
