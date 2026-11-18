@@ -23,7 +23,11 @@ Start deployment from [cluster-config](https://github.com/abellizzi1/cluster-con
 
 ### Accessing the website
 
-Open `http://localhost:8080` from a device on the local network and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard**. Conversations are saved in PostgreSQL per account. API requests to `/v1/chat/completions` use the login session cookie.
+Open `http://localhost:8080/ai/` on the Docker host, or `http://<YOUR_HOST_LAN_IP>:8080/ai/` from another device on the local network, and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard** at `/ai/admin.html`. Conversations are saved in PostgreSQL per account. API requests to `/ai/v1/chat/completions` use the login session cookie.
+
+Traefik shares this HTTP port with Argo CD at `/argocd/`. It strips `/ai` before forwarding requests to the gateway. Set `ROOT_PATH=/ai` behind that ingress so generated documentation URLs and session cookies use the external prefix. Browser links, API calls, and live chat events resolve relative to the application's directory. Direct development at `/` is still supported by leaving `ROOT_PATH` unset. Users migrating from the previous root URL may need to sign in again; successful login replaces the old root-scoped session cookie with one scoped to `/ai`.
+
+The gateway trims surrounding whitespace from `PROVIDER_API_KEY` and omits the Authorization header when no key is configured. Local Ollama does not require a key; hosted providers still require a valid one. A key copied from a Windows environment file may contain a trailing carriage return, which can otherwise make HTTPX reject the header before contacting the provider.
 
 ### Shared conversations
 
@@ -47,10 +51,10 @@ The admin can block new chat messages and API completions for all accounts or fo
 For an API request, sign in first and pass the session cookie:
 
 ```bash
-curl -c /tmp/ai-gateway-cookies.txt -X POST http://<YOUR_HOST_LAN_IP>:8080/auth/login \
+curl -c /tmp/ai-gateway-cookies.txt -X POST http://<YOUR_HOST_LAN_IP>:8080/ai/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"YOUR_ADMIN_PASSWORD"}'
-curl -b /tmp/ai-gateway-cookies.txt http://<YOUR_HOST_LAN_IP>:8080/v1/chat/completions \
+curl -b /tmp/ai-gateway-cookies.txt http://<YOUR_HOST_LAN_IP>:8080/ai/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"Hello"}]}'
 ```

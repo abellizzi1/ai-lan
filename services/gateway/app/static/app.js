@@ -1,4 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
+const appBase = new URL('./', document.baseURI);
+const appUrl = (path) => new URL(path.replace(/^\//, ''), appBase);
 let currentUser = null;
 let chats = [];
 let activeId = null;
@@ -10,7 +12,7 @@ let selectionVersion = 0;
 let selecting = false;
 
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  const response = await fetch(appUrl(path), options);
   const body = await response.text();
   let data = null;
   try { data = body ? JSON.parse(body) : null; } catch { /* Use the HTTP status below. */ }
@@ -50,7 +52,7 @@ function renderControls() {
 }
 function watchChat(id) {
   stopChatEvents();
-  const source = new EventSource(`/v1/chats/${encodeURIComponent(id)}/events`);
+  const source = new EventSource(appUrl(`/v1/chats/${encodeURIComponent(id)}/events`));
   chatEvents = source;
   source.addEventListener('snapshot', (event) => {
     if (chatEvents !== source || activeId !== id) return;
@@ -276,7 +278,7 @@ $('#logout').onclick = async () => {
   stopChatEvents();
   selectionVersion++;
   selecting = false;
-  await fetch('/auth/logout', {method: 'POST'}).catch(() => {});
+  await fetch(appUrl('/auth/logout'), {method: 'POST'}).catch(() => {});
   currentUser = null;
   chats = [];
   activeId = null;

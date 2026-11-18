@@ -22,10 +22,14 @@ import nh3
 DATABASE_URL = os.environ["DATABASE_URL"]
 ADMIN_USERNAME = os.environ.get("GATEWAY_ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ["GATEWAY_API_KEY"]
-PROVIDER_API_KEY = os.environ["PROVIDER_API_KEY"]
+# Local providers may not need authentication; copied keys can include CRLF.
+PROVIDER_API_KEY = os.getenv("PROVIDER_API_KEY", "").strip()
 PROVIDER_API_BASE = os.environ["PROVIDER_API_BASE"].rstrip("/")
 DEFAULT_MODEL = os.environ["DEFAULT_MODEL"]
 DAILY_REQUEST_LIMIT = int(os.getenv("DAILY_REQUEST_LIMIT", "100"))
+# The ingress strips this prefix; FastAPI uses it for generated URLs and docs.
+ROOT_PATH = os.getenv("ROOT_PATH", "").rstrip("/")
+SESSION_COOKIE_PATH = ROOT_PATH or "/"
 SESSION_COOKIE = "ai_gateway_session"
 SESSION_DAYS = 14
 password_hasher = PasswordHasher()
@@ -131,7 +135,7 @@ async def lifespan(app: FastAPI):
     await app.state.db.close()
 
 
-app = FastAPI(title="Private AI Gateway", lifespan=lifespan)
+app = FastAPI(title="Private AI Gateway", lifespan=lifespan, root_path=ROOT_PATH)
 
 
 @app.middleware("http")
@@ -267,7 +271,10 @@ async def login(request: Request, response: Response):
     token = secrets.token_urlsafe(32)
     async with app.state.db.acquire() as conn:
         await conn.execute("INSERT INTO user_sessions (token_hash,user_id,expires_at) VALUES ($1,$2,$3)", token_hash(token), user["id"], datetime.now(timezone.utc)+timedelta(days=SESSION_DAYS))
-    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", secure=False, max_age=SESSION_DAYS*86400, path="/")
+    if ROOT_PATH:
+        # Retire the previous root-scoped cookie so it cannot shadow this one.
+        response.delete_cookie(SESSION_COOKIE, path="/")
+    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", secure=False, max_age=SESSION_DAYS*86400, path=SESSION_COOKIE_PATH)
     return {"username": user["username"], "is_admin": user["is_admin"]}
 
 
@@ -277,7 +284,9 @@ async def logout(request: Request, response: Response):
     if token:
         async with app.state.db.acquire() as conn:
             await conn.execute("DELETE FROM user_sessions WHERE token_hash=$1", token_hash(token))
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(SESSION_COOKIE, path=SESSION_COOKIE_PATH)
+    if ROOT_PATH:
+        response.delete_cookie(SESSION_COOKIE, path="/")
     return {"status": "ok"}
 
 
@@ -787,7 +796,7 @@ async def complete_chat_message(parsed_id: UUID, chat, user, content: str, reque
         async with httpx.AsyncClient(timeout=90) as client:
             upstream = await client.post(
                 f"{PROVIDER_API_BASE}/chat/completions",
-                headers={"Authorization": f"Bearer {PROVIDER_API_KEY}"},
+                headers={"Authorization": f"Bearer {PROVIDER_API_KEY}"} if PROVIDER_API_KEY else {},
                 json=payload,
             )
     except httpx.HTTPError:
@@ -846,7 +855,7 @@ async def chat_completions(request: Request):
         async with httpx.AsyncClient(timeout=90) as client:
             upstream = await client.post(
                 f"{PROVIDER_API_BASE}/chat/completions",
-                headers={"Authorization": f"Bearer {PROVIDER_API_KEY}"},
+                headers={"Authorization": f"Bearer {PROVIDER_API_KEY}"} if PROVIDER_API_KEY else {},
                 json=payload,
             )
     except httpx.HTTPError:

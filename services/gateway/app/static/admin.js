@@ -1,4 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
+const appBase = new URL('./', document.baseURI);
+const appUrl = (path) => new URL(path.replace(/^\//, ''), appBase);
 let users = [];
 let globalTokenLimit = null;
 let allRequestsBlocked = false;
@@ -12,7 +14,7 @@ let nextConversationOffset = null;
 let nextRequestOffset = null;
 
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  const response = await fetch(appUrl(path), options);
   const body = await response.text();
   let data = null;
   try { data = body ? JSON.parse(body) : null; } catch { /* HTTP status is reported below. */ }
@@ -414,14 +416,14 @@ $('#user-block-form').onsubmit = async (event) => {
   finally { button.disabled = false; }
 };
 $('#sign-out').onclick = async () => {
-  await fetch('/auth/logout', {method: 'POST'}).catch(() => {});
-  location.replace('/');
+  await fetch(appUrl('/auth/logout'), {method: 'POST'}).catch(() => {});
+  location.replace(appUrl(''));
 };
 
 (async () => {
   try {
     const session = await api('/auth/me');
-    if (!session.is_admin) return location.replace('/');
+    if (!session.is_admin) return location.replace(appUrl(''));
     $('#admin-name').textContent = session.username;
     await refresh();
   } catch (error) { $('#page-status').textContent = `${error.message} Sign in from the chat page.`; }
