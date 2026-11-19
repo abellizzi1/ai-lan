@@ -5,6 +5,9 @@ accounts, saved conversations, an admin dashboard, and an OpenAI-compatible API.
 Terraform creates shared k3d infrastructure and installs Argo CD. Argo CD deploys
 a Python gateway serving the frontend and API, PostgreSQL, and optional Ollama.
 The current deployment serves HTTP on a trusted LAN; HTTPS is not configured.
+Traefik exposes the app at `/ai/` on the shared port and strips `/ai` upstream.
+Keep browser links, API requests, and SSE URLs relative to the application directory;
+`ROOT_PATH=/ai` configures generated backend URLs and session-cookie scope.
 
 This is a public GitHub repository. Keep credentials, personal machine paths, and
 private deployment details out of tracked files. Only share intentional project

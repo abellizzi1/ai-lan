@@ -23,7 +23,9 @@ Start deployment from [cluster-config](https://github.com/abellizzi1/cluster-con
 
 ### Accessing the website
 
-Open `http://localhost:8080` from a device on the local network and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard**. Conversations are saved in PostgreSQL per account. API requests to `/v1/chat/completions` use the login session cookie.
+Open `http://localhost:8080/ai/` on the Docker host, or `http://<YOUR_HOST_LAN_IP>:8080/ai/` from another device on the local network, and sign in with the admin username and password. The admin can create other accounts and view request history and provider-reported token usage in **Admin dashboard**. Conversations are saved in PostgreSQL per account. API requests to `/ai/v1/chat/completions` use the login session cookie.
+
+Traefik shares this HTTP port with Argo CD at `/argocd/`. It strips `/ai` before forwarding requests to the gateway.
 
 ### Shared conversations
 
@@ -47,10 +49,10 @@ The admin can block new chat messages and API completions for all accounts or fo
 For an API request, sign in first and pass the session cookie:
 
 ```bash
-curl -c /tmp/ai-gateway-cookies.txt -X POST http://<YOUR_HOST_LAN_IP>:8080/auth/login \
+curl -c /tmp/ai-gateway-cookies.txt -X POST http://<YOUR_HOST_LAN_IP>:8080/ai/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"YOUR_ADMIN_PASSWORD"}'
-curl -b /tmp/ai-gateway-cookies.txt http://<YOUR_HOST_LAN_IP>:8080/v1/chat/completions \
+curl -b /tmp/ai-gateway-cookies.txt http://<YOUR_HOST_LAN_IP>:8080/ai/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"Hello"}]}'
 ```
